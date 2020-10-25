@@ -1,0 +1,21 @@
+version: '2.3'
+
+services:
+  app:
+    build:
+      context: ./
+      dockerfile: docker/Dockerfile.gpu
+      args:
+        user_name: $user_name
+        group_name: $group_name
+    image: $image_name
+    runtime: nvidia
+    container_name: $container_name
+    tty: true
+    volumes:
+      - .:/home/$user_name/workspace
+    working_dir: /home/$user_name/workspace
+    ports:
+      - "4141:4141"   # kedro-viz
+      - "5000:5000"   # MLflow
+      - "6006:6006"   # tensorboard

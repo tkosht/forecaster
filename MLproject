@@ -1,0 +1,11 @@
+name: pytorch_tutorial
+
+entry_points:
+  main:
+    parameters:
+      epoch: {type: int, default: 5}
+      log-interval: {type: int, default: 10}
+    command: |
+          python main.py \
+            --epoch={epoch} \
+            --log-interval={log-interval}

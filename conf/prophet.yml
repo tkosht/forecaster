@@ -1,0 +1,33 @@
+prediction:
+  freq: "D"
+  # freq: "W-MON"
+  predict_date: "2016-01-01"
+  predict_by: "2018-12-31"
+
+data: 
+  exogs:
+    - "temp"
+    - "rain"
+    - "sun"
+    - "wind"
+
+model: 
+  class: Prophet
+  init:
+    growth: "logistic"
+    # growth: "linear"
+    mcmc_samples: 10  # for debugging
+    # mcmc_samples: 200
+    holidays_prior_scale: 0.25
+    changepoint_prior_scale: 0.01
+    seasonality_mode: "multiplicative"
+    # seasonality_mode: "additive"
+    yearly_seasonality: 10
+    weekly_seasonality: True
+    daily_seasonality: False
+  fit:
+    thin: 2       # default 1
+    # warmup: 1000  # <mcmc_sampels, default mcmc_sampels//2
+    chains: 5     # default 4
+    seed: 777
+

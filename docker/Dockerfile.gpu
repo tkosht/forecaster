@@ -1,0 +1,60 @@
+FROM nvidia/cuda
+
+MAINTAINER tkosht <takehito.oshita.business@gmail.com>
+
+ENV TZ Asia/Tokyo
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -y && apt-get upgrade -y \
+    && apt-get install -y sudo build-essential autoconf jq \
+        vim tmux tzdata locales dialog git \
+        libsnappy-dev \
+    && localedef -f UTF-8 -i ja_JP ja_JP.UTF-8
+
+RUN apt-get install -y --no-install-recommends \
+        python3.8 \
+        python3.8-dev \
+        python3-pip \
+        python3-setuptools \
+        python3-wheel
+
+RUN ln -s /usr/bin/python3.8 /usr/bin/python \
+     && ln -s /usr/bin/pdb3 /usr/bin/pdb
+#      && ln -s /usr/bin/pip3 /usr/bin/pip \
+
+ENV LANG="ja_JP.UTF-8" \
+    LANGUAGE="ja_JP:ja" \
+    LC_ALL="ja_JP.UTF-8" \
+    TZ="Asia/Tokyo" \
+    TERM="xterm"
+
+# - upgrade system
+RUN apt-get upgrade -y \
+    && apt-get autoremove -y \
+    && apt-get clean -y \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY ./requirements.txt /requirements.txt
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r /requirements.txt \
+    && rm -f /requirements.txt
+
+ARG user_id=1000
+ARG group_id=1000
+ARG user_name
+ARG group_name
+
+RUN groupadd --gid $group_id $group_name
+RUN useradd -s /bin/bash --uid $user_id \
+    --gid $group_id -m $user_name
+ARG home_dir=/home/$user_name
+COPY rc $home_dir
+
+RUN echo $user_name ALL=\(root\) NOPASSWD:ALL \
+    > /etc/sudoers.d/$user_name\
+    && chmod 0440 /etc/sudoers.d/$user_name
+
+RUN chown -R $user_name:$group_name $home_dir 
+USER $user_name
+
+# Switch back to dialog for any ad-hoc use of apt-get
+ENV DEBIAN_FRONTEND=dialog
