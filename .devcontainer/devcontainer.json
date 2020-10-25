@@ -1,5 +1,5 @@
 {
-	"name": "Template Project",
+	"name": "Forecaster Project",
 	"dockerComposeFile": [
 		"../docker-compose.yml"
 	],
