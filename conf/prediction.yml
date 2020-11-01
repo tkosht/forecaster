@@ -1,4 +1,4 @@
-DataSpec:
+data_spec:
     known:    # exog
         categorical:
             target_keys: ["area_id", "sku"]
