@@ -2,7 +2,7 @@ import yaml
 from .items import Items
 
 
-g_default_config_file = "conf/prediction.yml"
+g_default_config_file = "conf/app.yml"
 
 
 class Config(object):
@@ -24,5 +24,6 @@ class Config(object):
 if __name__ == "__main__":
     cfg = Config()
     print("get(target_keys):", cfg.get("target_keys"))
-    print("cfg.items.~.target_keys:", cfg.items.data_spec.known.categorical.target_keys)
-    assert id(cfg.items.data_spec.known.categorical.target_keys) == id(cfg.get("target_keys"))
+    print("cfg.items.~.target_keys:", cfg.items.data_spec.target_keys)
+    assert id(cfg.items.data_spec.target_keys) == id(cfg.get("target_keys"))
+    print("OK")
