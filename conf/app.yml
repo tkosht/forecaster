@@ -1,0 +1,78 @@
+data_spec:
+    time_index: "time_idx"
+    target: "volume"
+    target_keys: ["agency", "sku"]
+    static:
+        categorical: ["agency", "sku"]
+        numerical:
+            - "avg_population_2017"
+            - "avg_yearly_household_income_2017"
+    time_varying:
+        known:    # exog
+            categorical: 
+                # date time relatives
+                # event flags: # event/accident/disaster on/off
+                - "special_days"
+                - "month"
+            numerical:
+                # events: # event/accident/disaster counts
+                - "time_idx"
+                - "price_regular"
+                - "discount_in_percent"
+        unknown:  # multivariate
+            categorical: []
+                # weather relatives:    # predictions
+                # event predictions:    # event/accident/disaster
+            numerical:
+                # targets
+                # targets relatives
+                - "volume"
+                - "log_volume"
+                - "industry_volume"
+                - "soda_volume"
+                - "avg_max_temp"
+                - "avg_volume_by_agency"
+                - "avg_volume_by_sku"
+    custom:
+        variable_groups:
+            special_days:   # from column names
+                - "easter_day"
+                - "good_friday"
+                - "new_year"
+                - "christmas"
+                - "labor_day"
+                - "independence_day"
+                - "revolution_day_memorial"
+                - "regional_games"
+                - "fifa_u_17_world_cup"
+                - "football_gold_cup"
+                - "beer_capital"
+                - "music_fest"
+
+prediction_spec:
+    max_prediction_length: 6    # forecast 6 steps/months
+    max_encoder_length: 24      # use 24 steps/months of history
+
+train_spec:
+    batch_spec:
+        trainset:
+            batch_size: 128
+        validset:
+            batch_size: 1280
+    trainer:
+        params:
+            max_epochs: 3
+            gpus: 0     # train on CPU, use gpus = [0] to run on GPU
+            gradient_clip_val: 0.1
+            limit_train_batches: 30  # running validation every 30 batches
+            # fast_dev_run: True    # comment in to quickly check for bugs
+    model:
+        params:
+            learning_rate: 0.03
+            hidden_size: 16      # biggest influence network size
+            attention_head_size: 1
+            dropout: 0.1
+            hidden_continuous_size: 8
+            output_size: 7       # QuantileLoss has 7 quantiles by default
+            log_interval: 10     # log example every 10 batches
+            reduce_on_plateau_patience: 4    # reduce learning automatically

@@ -5,6 +5,10 @@ all: run
 bash: up
 	docker-compose exec app bash
 
+train predict: up
+	docker-compose exec app python -m src.$@
+
+
 # switch mode
 gpu:
 	@rm -f Dockerfile docker-compose.yml
