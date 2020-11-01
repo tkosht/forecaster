@@ -9,18 +9,19 @@ class DatasetSplitter(object):
         self.cfg = cfg
 
     def create_data_spec(self) -> dict:
+        cfg = self.cfg
         data_spec = dict(
-            time_idx=self.cfg.get("time_index"),
-            target=self.cfg.get("target"),
-            group_ids=self.cfg.get("target_keys"),
+            time_idx=cfg.get("time_index"),
+            target=cfg.get("target"),
+            group_ids=cfg.get("target_keys"),
             target_normalizer=GroupNormalizer(
-                groups=self.cfg.get("target_keys"), coerce_positive=1.0
+                groups=cfg.get("target_keys"), coerce_positive=1.0
             ),  # use softplus with beta=1.0 and normalize by group
-            static_categoricals=self.cfg.get("static").categorical,
-            static_reals=self.cfg.get("static").numerical,
-            time_varying_known_categoricals=self.cfg.get("known").categorical,
-            variable_groups=self.cfg.get("variable_groups"),
-            time_varying_known_reals=self.cfg.get("known").numerical,
+            static_categoricals=cfg.get("static").categorical,
+            static_reals=cfg.get("static").numerical,
+            time_varying_known_categoricals=cfg.get("known").categorical,
+            variable_groups=cfg.get("variable_groups"),
+            time_varying_known_reals=cfg.get("known").numerical,
             time_varying_unknown_categoricals=cfg.get("unknown").categorical,
             time_varying_unknown_reals=cfg.get("unknown").numerical,
         )
@@ -65,7 +66,7 @@ class DatasetSplitter(object):
         return trainset, validset
 
 
-def run_train(trainset, validset) -> None:
+def run_train(cfg, trainset, validset) -> None:
     import multiprocessing
     import pytorch_lightning as pl
     from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor
@@ -112,7 +113,7 @@ def run_train(trainset, validset) -> None:
     trainer.fit(
         tft,
         train_dataloader=loader_trainset,
-        val_dataloaders=loader_validset
+        val_dataloaders=loader_validset,
     )
 
     return
@@ -124,4 +125,4 @@ if __name__ == "__main__":
 
     splitter = DatasetSplitter(cfg)
     trainset, validset = splitter.create_dataset(df)
-    run_train(trainset, validset)
+    run_train(cfg, trainset, validset)
