@@ -78,8 +78,8 @@ if __name__ == '__main__':
     itm = Items()
     itm.setup(d)
 
-    ## test access member variables
-    ### like dic or member variable
+    # # test access member variables
+    # ## like dic or member variable
     assert itm["first"]["lr"] == d["first"]["lr"]
     assert itm.first.lr == d["first"]["lr"]
     assert itm.get("first").lr == d["first"]["lr"]
@@ -90,7 +90,7 @@ if __name__ == '__main__':
     assert itm["second"] == itm.get("second")
     assert id(itm.second) == id(itm.get("second"))
 
-    ### using dict parameters
+    # ## using dict parameters
     def _call_function(loss: str, optimizer: str) -> None:
         assert loss == "cross_entropy"
         assert optimizer == "Adam"
@@ -104,7 +104,7 @@ if __name__ == '__main__':
     try:
         itm.second = {"second": "abc"}
         assert False
-    except TypeError as e:
+    except TypeError:
         assert True
 
     print("OK")
