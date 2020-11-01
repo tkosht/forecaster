@@ -61,7 +61,7 @@ train_spec:
             batch_size: 1280
     trainer:
         params:
-            max_epochs: 3
+            max_epochs: 20
             gpus: 0     # train on CPU, use gpus = [0] to run on GPU
             gradient_clip_val: 0.1
             limit_train_batches: 30  # running validation every 30 batches
