@@ -14,7 +14,7 @@
 		"python.linting.pylintPath": "/usr/local/bin/pylint",
 		"python.linting.flake8Path": "/usr/local/bin/flake8",
 		"python.linting.flake8Args": [],
-		"python.formatting.provider": "/usr/local/bin/black",
+		"python.formatting.provider": "black",
 		"editor.formatOnSave": true,
 		"editor.formatOnPaste": false
 	},
@@ -24,6 +24,7 @@
 	// "postCreateCommand": "apt-get update && apt-get install -y git",
 	"extensions": [
 		"ms-python.python",
+		"ms-python.vscode-pylance",
 		"donjayamanne.python-extension-pack",
 	]
 }
