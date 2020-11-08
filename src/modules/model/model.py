@@ -19,9 +19,9 @@ class M(nn.Module):
 
 
 class Model(M):
-    def __init__(self, dim=16, n_heads=4, ws=8, n_quantiles=7):
+    def __init__(self, dim_ins=16, n_heads=4, ws=8, n_quantiles=7):
         super().__init__()      # after this call, to be enabled to access `self.params`
-        self.cyclic = Cyclic(dim=dim, n_heads=4, n_quantiles=self.params.n_quantiles)
+        self.cyclic = Cyclic(dim_ins=dim_ins, n_heads=4, n_quantiles=self.params.n_quantiles)
         self.trend = None
         self.recent = None
         self.ws = ws        # window size
@@ -132,14 +132,62 @@ def _create_toydataset(B, W, Dout):
         ti = torch.cat([ti, t1], axis=0)
     ti = ti.float()
 
-    tc = torch.rand((B, W, 3))  # shape: (B, W, Dtc)
+    tc = torch.rand((B, 1, 1)).repeat(1, W, 3)  # shape: (B, W, Dtc)
     kn = torch.rand((B, W, 4))  # shape: (B, W, Dkn)
     tg = torch.sin(ti).repeat(1, 1, Dout)  # target
+    # tg = (torch.sin(2*ti) + 3*torch.sin(ti) + 0.5*torch.cos(3*ti)).repeat(1, 1, Dout)
     return ti, tc, kn, tg
 
 
+def _make_testset(ti: torch.Tensor, tc: torch.Tensor, kn: torch.Tensor, tg: torch.Tensor):
+    offset = 10
+    sz = 16
+    test_ti = (ti + len(ti))[offset:offset+sz]
+    test_tc = tc[offset:offset+sz]
+    test_kn = kn[offset:offset+sz]
+    test_tg = tg[offset:offset+sz]
+    return test_ti, test_tc, test_kn, test_tg
+
+
+def quantile_loss(pred_y, tg, quantiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]):
+    losses = []
+    for idx, qtl in enumerate(quantiles):
+        err = tg - pred_y[..., idx].unsqueeze(-1)       # (B, 1)
+        losses.append(torch.max((qtl - 1) * err, qtl * err).unsqueeze(-1))  # (B, 1, 1)
+    losses = torch.cat(losses, dim=2)
+    loss = losses.sum(dim=(1, 2)).mean()
+    # loss += nn.MSELoss()(pred_y, tg.repeat(1, len(quantiles)))
+    return loss
+
+
+def get_quantile(x: torch.Tensor, alpha: float):
+    idx = (numpy.array(cri_params.quantiles) == alpha).argmax()
+    return x[:, idx, :][..., 0]     # just to get a first dim
+
+
+def do_predict(ti: torch.Tensor, tc: torch.Tensor, kn: torch.Tensor, tg: torch.Tensor, name="trainset"):
+    with torch.no_grad():
+        y_pred = model(ti, tc, kn, tg)
+
+        # arrange outputs
+        y_pred = y_pred.view(-1, len(cri_params.quantiles), Dout)
+        p = get_quantile(y_pred, alpha=.5)
+        p10 = get_quantile(y_pred, alpha=.1)
+        p90 = get_quantile(y_pred, alpha=.9)
+        t = tg[:, -1, :][..., 0]
+
+        # plot and save
+        df = pandas.DataFrame({"p": p, "t": t})
+        df.plot(figsize=(10, 5))
+        pyplot.fill_between(df.index, p10, p90, facecolor='b', alpha=0.2)
+        pyplot.savefig(f"img/pred_{name}.png")
+    return
+
+
 if __name__ == "__main__":
+    import datetime
     import torch.optim as optim
+    from torch.utils.tensorboard import SummaryWriter
 
     # create toy dataset
     B, W, Dout = 64, 4, 1
@@ -155,18 +203,13 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     # optimizer = optim.SGD(model.parameters(), lr=0.001)
 
-    def quantile_loss(pred_y, tg, quantiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]):
-        losses = []
-        for idx, qtl in enumerate(quantiles):
-            err = tg - pred_y[..., idx].unsqueeze(-1)       # (B, 1)
-            losses.append(torch.max((qtl - 1) * err, qtl * err).unsqueeze(-1))  # (B, 1, 1)
-        losses = torch.cat(losses, dim=2)
-        loss = losses.sum(dim=(1, 2)).mean()
-        # loss += nn.MSELoss()(pred_y, tg.repeat(1, len(quantiles)))
-        return loss
-
     criterion = quantile_loss
     cri_params = Items().setup(dict(quantiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]))
+
+    # setup tensorboard writer
+    experiment_id = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+    logdir = f"result/{experiment_id}"
+    tbwriter = SummaryWriter(log_dir=logdir)
 
     N = 10 * 1000
     batch_losses = []
@@ -180,10 +223,33 @@ if __name__ == "__main__":
             y_pred = model(t, tc, kn, tg)
             loss = criterion(y_pred, tg[:, -1, :], **cri_params)
             batch_losses.append(loss.item())
-            if idx % 20 == 0 and idx > 0:
+            if idx % 100 == 0 and idx > 0:
                 mean_loss = numpy.array(batch_losses[idx-20: idx]).mean()
                 print(f"loss[{idx:03d}]", mean_loss)
                 losses.append(mean_loss)
+                tbwriter.add_scalar("loss/train", loss, idx)
+
+                def make_predictions(y_pred, tg):
+                    pred = y_pred.view(-1, len(cri_params.quantiles), Dout)
+                    p = get_quantile(pred, alpha=.5)
+                    p10 = get_quantile(pred, alpha=.1)
+                    p90 = get_quantile(pred, alpha=.9)
+                    t = tg[:, -1, :][..., 0]
+                    return p, p10, p90, t
+
+                preds = make_predictions(y_pred, tg)
+                for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
+                    _dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
+                    tbwriter.add_scalars(f"prediction/epoch_{idx}/train", _dct_pred, n)
+
+                test_ti, test_tc, test_kn, test_tg = _make_testset(ti, tc, kn, tg)
+                with torch.no_grad():
+                    _y_pred = model(test_ti, test_tc, test_kn, test_tg)
+                preds = make_predictions(_y_pred, test_tg)
+                for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
+                    _dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
+                    tbwriter.add_scalars(f"prediction/epoch_{idx}/valid", _dct_pred, n)
+
             loss.backward()
             return loss
         optimizer.step(closure)
@@ -196,36 +262,10 @@ if __name__ == "__main__":
     pyplot.savefig("img/loss.png")
 
     # predict for trainset
-    def _get_quantile(x: torch.Tensor, alpha: float):
-        idx = (numpy.array(cri_params.quantiles) == alpha).argmax()
-        return x[:, idx, :][..., 0]     # just to get a first dim
-
-    def do_predict(ti: torch.Tensor, tc: torch.Tensor, kn: torch.Tensor, tg: torch.Tensor, name="trainset"):
-        with torch.no_grad():
-            y_pred = model(ti, tc, kn, tg)
-
-            # arrange outputs
-            y_pred = y_pred.view(-1, len(cri_params.quantiles), Dout)
-            p = _get_quantile(y_pred, alpha=.5)
-            p10 = _get_quantile(y_pred, alpha=.1)
-            p90 = _get_quantile(y_pred, alpha=.9)
-            t = tg[:, -1, :][..., 0]
-
-            # plot and save
-            df = pandas.DataFrame({"p": p, "t": t})
-            df.plot(figsize=(10, 5))
-            pyplot.fill_between(df.index, p10, p90, facecolor='b', alpha=0.2)
-            pyplot.savefig(f"img/pred_{name}.png")
-        return
-
     do_predict(ti, tc, kn, tg, "trainset")
 
     # predict for testset
-    offset = 10
-    sz = 16
-    test_ti = (ti + len(ti))[offset:offset+sz]
-    test_tc = tc[offset:offset+sz]
-    test_kn = kn[offset:offset+sz]
-    test_tg = tg[offset:offset+sz]
-
+    test_ti, test_tc, test_kn, test_tg = _make_testset(ti, tc, kn, tg)
     do_predict(test_ti, test_tc, test_kn, test_tg, "testset")
+
+    tbwriter.close()
