@@ -5,6 +5,7 @@ class Item(dict):
     def setup(self, d: dict):
         self.update(d)
         _setup(self, d)
+        return self
 
     def __str__(self):
         return str(vars(self))
@@ -22,6 +23,7 @@ class Items(dict):
 
     def setup(self, d: dict):
         _setup(self, d, self.is_readonly)
+        return self
 
     def get(self, key: str):
         return _get(self, key)

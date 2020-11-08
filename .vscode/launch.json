@@ -8,19 +8,29 @@
             "name": "train.py",
             "type": "python",
             "request": "launch",
-            "module": "src.train"
+            "module": "src.train",
+            "justMyCode": false
         },
         {
             "name": "predict.py",
             "type": "python",
             "request": "launch",
-            "module": "src.predict"
+            "module": "src.predict",
+            "justMyCode": false
+        },
+        {
+            "name": "model.py",
+            "type": "python",
+            "request": "launch",
+            "module": "src.modules.model.model",
+            "justMyCode": false
         },
         {
             "name": "config.py",
             "type": "python",
             "request": "launch",
-            "module": "src.modules.util.config"
+            "module": "src.modules.util.config",
+            "justMyCode": false
         }
     ]
 }

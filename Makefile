@@ -8,6 +8,8 @@ bash: up
 train predict: up
 	docker-compose exec app python -m src.$@
 
+test: up
+	docker-compose exec app python -m src.modules.model.model
 
 # switch mode
 gpu:
