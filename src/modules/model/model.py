@@ -256,7 +256,7 @@ class DatasetToy(object):
         return self.ti, self.tc, self.kn, self.tg
 
     def create_testset(
-        self, offset=10, sz=16
+        self, offset=10, sz=32
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         ti, tc, kn, tg = self.ti, self.tc, self.kn, self.tg
         test_ti = (ti + len(ti))[offset : offset + sz]
