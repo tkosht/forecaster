@@ -11,6 +11,9 @@ train predict: up
 toy.test: up
 	docker-compose exec app python -m src.modules.model.model
 
+toy.test.trend: up
+	docker-compose exec app python -m src.modules.model.model --model=trend
+
 # switch mode
 gpu:
 	@rm -f Dockerfile docker-compose.yml
@@ -56,3 +59,6 @@ reup: down up
 clean:
 	docker-compose down --rmi all
 	sudo rm -rf app/__pycache__
+
+clean-result:
+	rm -rf result/*
