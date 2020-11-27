@@ -5,6 +5,9 @@ all: run
 bash: up
 	docker-compose exec app bash
 
+ssh: up
+	docker-compose exec app sudo service ssh start
+
 train predict: up
 	docker-compose exec app python -m src.$@
 
