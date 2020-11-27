@@ -15,7 +15,7 @@ services:
       - .:/home/$user_name/workspace
     working_dir: /home/$user_name/workspace
     ports:
-      - "4141:4141"   # kedro-viz
       - "5000:5000"   # MLflow
       - "6006:6006"   # tensorboard
+      - "2022:22"     # sshd
 
