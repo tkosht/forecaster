@@ -9,7 +9,10 @@ RUN apt-get update -y && apt-get upgrade -y \
         vim tmux tzdata locales dialog git openssh-server \
         libsnappy-dev \
     && localedef -f UTF-8 -i ja_JP ja_JP.UTF-8
+
 RUN mkdir /var/run/sshd
+RUN echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
+RUN echo "AuthorizedKeysFile workspace/.ssh/authorized_keys" >> /etc/ssh/sshd_config
 
 RUN apt-get install -y --no-install-recommends \
         python3-dev \
@@ -37,8 +40,6 @@ COPY ./requirements.txt /requirements.txt
 RUN python -m pip install --upgrade pip \
     && python -m pip install -r /requirements.txt \
     && rm -f /requirements.txt
-
-# RUN echo 'font.family : IPAexGothic' >> /設定置き場PATH/matplotlib/matplotlibrc
 
 ARG user_id=1000
 ARG group_id=1000
