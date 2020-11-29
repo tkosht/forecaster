@@ -11,10 +11,10 @@ ssh: up
 train predict: up
 	docker-compose exec app python -m src.$@
 
-toy.test: up
+test.toy: up
 	docker-compose exec app python -m src.modules.model.model
 
-toy.test.trend: up
+test.toy.trend: up
 	docker-compose exec app python -m src.modules.model.model --model=trend
 
 # switch mode
