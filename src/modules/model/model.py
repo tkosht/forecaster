@@ -362,11 +362,14 @@ if __name__ == "__main__":
 
     args = get_args()
 
+    # setup device
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    print("device:", device)
+
     # create toy dataset
     B, W, Dout = 64, 4, 1
-    toydataset = DatasetToy(Dout, args.model)
+    toydataset = DatasetToy(Dout, args.model, device=device)
     ti, tc, kn, tg = toydataset.create()
-    # dataset = Items(is_readonly=True).setup(dict(ti=ti, tc=tc, kn=kn, tg=tg))
 
     # setup model
     dims = (ti.shape[-1], tc.shape[-1], kn.shape[-1])
@@ -379,7 +382,7 @@ if __name__ == "__main__":
         n_heads=2,
         k=3,
         n_quantiles=7,
-    )
+    ).to(device)
 
     # setup optimizer and criterion
     # optimizer = optim.LBFGS(model.parameters(), lr=0.8)     # Newton

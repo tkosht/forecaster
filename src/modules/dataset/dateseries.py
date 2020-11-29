@@ -67,7 +67,7 @@ class DatasetDateData(object):
         _df = pandas.DataFrame([])
         index_date = pandas.date_range(start, end, freq=freq)
         _df["month"] = index_date.month
-        _df["weekth"] = index_date.week
+        _df["weekth"] = index_date.isocalendar().week
         _df["weekday"] = index_date.weekday
         _df.month = _df.month.astype("category")
         _df.weekth = _df.month.astype("category")

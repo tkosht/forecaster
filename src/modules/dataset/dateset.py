@@ -4,9 +4,10 @@ from .dateseries import DatasetDateData
 
 
 class DatasetToy(object):
-    def __init__(self, Dout: int, model_type: str):
+    def __init__(self, Dout: int, model_type: str, device: torch.device):
         self.Dout = Dout
         self.model_type = model_type
+        self.device = device
         self.dateset = None
 
         self.ti = torch.Tensor([])
@@ -43,11 +44,16 @@ class DatasetToy(object):
             )
         else:
             raise NotImplementedError(f"{self.__class__}.create()")
+        self.ti, self.tc, self.kn, self.tg = self.to_device(self.ti, self.tc, self.kn, self.tg)
         return self.ti, self.tc, self.kn, self.tg
+
+    def to_device(self, ti: torch.DoubleTensor, tc: torch.DoubleTensor, kn: torch.DoubleTensor, tg: torch.DoubleTensor) -> Tuple[torch.DoubleTensor, torch.DoubleTensor, torch.DoubleTensor, torch.DoubleTensor]:
+        device = self.device
+        return ti.to(device), tc.to(device), kn.to(device), tg.to(device)
 
     def create_testset(
         self, by="2019-12-31"
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.DoubleTensor, torch.DoubleTensor, torch.DoubleTensor, torch.DoubleTensor]:
         nxt = self.dateset.next_date
         dateset_test = DatasetDateData(
             start=nxt, end=by, wsz=self.dateset.wsz, wshift=self.dateset.wshift
@@ -71,4 +77,5 @@ class DatasetToy(object):
             )
         else:
             raise NotImplementedError(f"{self.__class__}.create_testset()")
+        test_ti, test_tc, test_kn, test_tg = self.to_device(test_ti, test_tc, test_kn, test_tg)
         return test_ti, test_tc, test_kn, test_tg
