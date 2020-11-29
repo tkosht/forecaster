@@ -1,4 +1,5 @@
 import inspect
+import datetime
 import numpy
 import torch
 import torch.nn as nn
@@ -6,6 +7,7 @@ import torch.optim as optim
 from typing import Tuple
 from torch.utils.tensorboard import SummaryWriter
 from ..util.items import Items
+from ..dataset.batcher import BatchMaker
 
 
 class M(nn.Module):
@@ -75,7 +77,7 @@ class Cyclic(M):
         n_layers=2,
     ):
         super().__init__()  # after this call, to be enabled to access `self.args`
-        self.emb = nn.Linear(sum(dim_ins[1:]), dim_emb)
+        self.emb = nn.Linear(sum(dim_ins[1:]), dim_emb).double()
 
         # Transformers
         prm = dict(
@@ -84,16 +86,16 @@ class Cyclic(M):
             num_encoder_layers=n_layers,
             num_decoder_layers=n_layers,
         )
-        self.tra = nn.Transformer(**prm)
-        self.trb = nn.Transformer(**prm)
-        self.trw = nn.Transformer(**prm)
-        self.tro = nn.Transformer(**prm)
+        self.tra = nn.Transformer(**prm).double()
+        self.trb = nn.Transformer(**prm).double()
+        self.trw = nn.Transformer(**prm).double()
+        self.tro = nn.Transformer(**prm).double()
 
         # linears
-        self.ak = nn.Linear(dim_emb * ws, k * n_quantiles)
-        self.bk = nn.Linear(dim_emb * ws, k * n_quantiles)
-        self.wk = nn.Linear(dim_emb * ws, k)
-        self.ok = nn.Linear(dim_emb * ws, k)
+        self.ak = nn.Linear(dim_emb * ws, k * n_quantiles).double()
+        self.bk = nn.Linear(dim_emb * ws, k * n_quantiles).double()
+        self.wk = nn.Linear(dim_emb * ws, k).double()
+        self.ok = nn.Linear(dim_emb * ws, k).double()
 
         # initialize weights
         nn.init.kaiming_normal_(self.ak.weight)
@@ -101,14 +103,16 @@ class Cyclic(M):
         nn.init.xavier_normal_(self.wk.weight)
         nn.init.xavier_normal_(self.ok.weight)
 
-    def forward(self, ti: torch.Tensor, tc: torch.Tensor, kn: torch.Tensor):
+    def forward(
+        self, ti: torch.DoubleTensor, tc: torch.DoubleTensor, kn: torch.DoubleTensor
+    ):
         # embedding
         x = torch.cat([tc, kn], dim=-1)
         emb = self.emb(x)
         emb = emb.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
 
         # transform
-        def reshape(tsr: torch.Tensor):
+        def reshape(tsr: torch.DoubleTensor):
             _tsr = tsr.transpose(1, 0)  # (W, B, Demb) -> (B, W, Demb)
             return _tsr.reshape(-1, self.args.dim_emb * self.args.ws)
 
@@ -151,7 +155,7 @@ class Trend(M):
         n_layers=1,
     ):
         super().__init__()  # after this call, to be enabled to access `self.args`
-        self.emb = nn.Linear(sum(dim_ins[1:]), dim_emb)
+        self.emb = nn.Linear(sum(dim_ins[0:]), dim_emb).double()
 
         # Transformers
         prm = dict(
@@ -160,14 +164,14 @@ class Trend(M):
             num_encoder_layers=n_layers,
             num_decoder_layers=n_layers,
         )
-        self.tra = nn.Transformer(**prm)
-        self.trb = nn.Transformer(**prm)
-        self.tro = nn.Transformer(**prm)
+        self.tra = nn.Transformer(**prm).double()
+        self.trb = nn.Transformer(**prm).double()
+        self.tro = nn.Transformer(**prm).double()
 
         # linears
-        self.ak = nn.Linear(dim_emb * ws, k)
-        self.bk = nn.Linear(dim_emb * ws, n_quantiles)
-        self.ok = nn.Linear(dim_emb * ws, k)
+        self.ak = nn.Linear(dim_emb * ws, k).double()
+        self.bk = nn.Linear(dim_emb * ws, n_quantiles).double()
+        self.ok = nn.Linear(dim_emb * ws, k).double()
         self.relu = nn.ReLU()
 
         # initialize weights
@@ -175,9 +179,11 @@ class Trend(M):
         nn.init.kaiming_normal_(self.bk.weight)
         nn.init.xavier_normal_(self.ok.weight)
 
-    def forward(self, ti: torch.Tensor, tc: torch.Tensor, kn: torch.Tensor):
+    def forward(
+        self, ti: torch.DoubleTensor, tc: torch.DoubleTensor, kn: torch.DoubleTensor
+    ):
         # embedding
-        x = torch.cat([tc, kn], dim=-1)
+        x = torch.cat([ti, tc, kn], dim=-1)
         emb = self.emb(x)
         emb = emb.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
 
@@ -209,7 +215,7 @@ class Trend(M):
 
 
 class Trainer(object):
-    def __init__(self, model, optimizer, criterion, writer, params):
+    def __init__(self, model, optimizer, criterion, writer, params: Items):
         self.model = model
         self.optimizer = optimizer
         self.criterion = criterion
@@ -222,131 +228,83 @@ class Trainer(object):
         idx = (numpy.array(self.params.quantiles) == alpha).argmax()
         return x[:, idx, :][..., 0]  # just to get a first dim
 
-    def do_train(self, dataset: Items, epochs: int = 500):
+    def do_train(self, dataset, epochs: int = 500):
         ti, tc, kn, tg = dataset.ti, dataset.tc, dataset.kn, dataset.tg
+        batch = BatchMaker(bsz=self.params.batch_size)
         # train loop
-        batch_losses = []
+        n_steps = -1
+        losses = []
         for idx in range(epochs):
             shuffle = numpy.random.permutation(range(len(ti)))
-            t = ti[shuffle]
+            _ti, _tc, _kn, _tg = ti[shuffle], tc[shuffle], kn[shuffle], tg[shuffle]
 
-            def closure():
-                self.optimizer.zero_grad()
-                y_pred = self.model(t, tc, kn)
-                loss = self.criterion(y_pred, tg[:, -1, :], self.params.quantiles)
-                batch_losses.append(loss.item())
+            for bdx, (bti, btc, bkn, btg) in enumerate(
+                zip(batch(_ti), batch(_tc), batch(_kn), batch(_tg))
+            ):
+                n_steps += 1
 
-                # logging progress
-                if idx % self.params.log_intervals == 0 and idx > 0:
-                    mean_loss = numpy.array(batch_losses[idx - 20 : idx]).mean()
-                    print(f"loss[{idx:03d}]", mean_loss)
-                    self.writer.add_scalar("loss/train", loss.item(), idx)
-                    self.loss_train = loss.item()
+                def closure():
+                    self.optimizer.zero_grad()
+                    y_pred = self.model(bti, btc, bkn)
+                    loss = self.criterion(y_pred, btg[:, -1, :], self.params.quantiles)
+                    losses.append(loss.item())
 
-                    def make_predictions(
-                        y_pred, tg
-                    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-                        pred = y_pred.view(
-                            -1, len(self.params.quantiles), self.model.args.dim_out
-                        )
-                        p = self.get_quantile(pred, alpha=0.5)
-                        p10 = self.get_quantile(pred, alpha=0.1)
-                        p90 = self.get_quantile(pred, alpha=0.9)
-                        t = tg[:, -1, :][..., 0]
-                        return p, p10, p90, t
+                    self.loss_train = loss.item()  # keep latest loss
 
-                    def write_log2tb(preds, loss, pred_type="train") -> None:
-                        for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
-                            dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
-                            self.writer.add_scalars(
-                                f"prediction/epoch_{idx}/{pred_type}", dct_pred, n
+                    # logging progress
+                    if idx % self.params.log_interval == 0 and idx > 0 and bdx == 0:
+                        mean_loss = numpy.array(losses[n_steps - 20 : n_steps]).mean()
+                        print(f"loss[{idx:03d}][{bdx:03d}][{n_steps:05d}]", mean_loss)
+
+                        def make_predictions(
+                            y_pred, tg
+                        ) -> Tuple[
+                            torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+                        ]:
+                            pred = y_pred.view(
+                                -1, len(self.params.quantiles), self.model.args.dim_out
                             )
-                        self.writer.add_scalar(f"loss/{pred_type}", loss.item(), idx)
+                            p = self.get_quantile(pred, alpha=0.5)
+                            p10 = self.get_quantile(pred, alpha=0.1)
+                            p90 = self.get_quantile(pred, alpha=0.9)
+                            t = tg[:, -1, :][..., 0]
+                            return p, p10, p90, t
 
-                    # prediction with trainset
-                    preds = make_predictions(y_pred, tg)
-                    write_log2tb(preds, loss, "train")
+                        def write_log2tb(preds, loss, pred_type="train") -> None:
+                            for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
+                                dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
+                                self.writer.add_scalars(
+                                    f"prediction/epoch_{idx:03d}/{pred_type}",
+                                    dct_pred,
+                                    n,
+                                )
+                            self.writer.add_scalar(
+                                f"loss/{pred_type}", loss.item(), idx
+                            )
 
-                    # prediction with testset
-                    test_ti, test_tc, test_kn, test_tg = toydataset.create_testset()
-                    with torch.no_grad():
-                        _y_pred = self.model(test_ti, test_tc, test_kn)
-                        loss_valid = self.criterion(
-                            _y_pred, test_tg[:, -1, :], self.params.quantiles
-                        )
-                    preds = make_predictions(_y_pred, test_tg)
-                    write_log2tb(preds, loss_valid, "valid")
-                    self.loss_valid = loss_valid.item()
+                        # prediction with trainset
+                        preds = make_predictions(y_pred, tg)
+                        write_log2tb(preds, loss, "train")
 
-                loss.backward()
-                return loss
+                        # prediction with testset
+                        test_ti, test_tc, test_kn, test_tg = dataset.create_testset()
+                        test_bti = next(batch(test_ti))
+                        test_btc = next(batch(test_tc))
+                        test_bkn = next(batch(test_kn))
+                        test_btg = next(batch(test_tg))
+                        with torch.no_grad():
+                            test_pred = self.model(test_bti, test_btc, test_bkn)
+                            loss_valid = self.criterion(
+                                test_pred, test_btg[:, -1, :], self.params.quantiles
+                            )
+                        preds = make_predictions(test_pred, test_btg)
+                        write_log2tb(preds, loss_valid, "valid")
+                        self.loss_valid = loss_valid.item()
 
-            self.optimizer.step(closure)
+                    loss.backward()
+                    return loss
 
-        self.writer.close()
-
-
-class DatasetToy(object):
-    def __init__(self, B: int, W: int, Dout: int, model: str):
-        self.B = B
-        self.W = W
-        self.Dout = Dout
-        self.model = model
-        self.ti = torch.Tensor([])
-        self.tc = torch.Tensor([])
-        self.kn = torch.Tensor([])
-        self.tg = torch.Tensor([])
-
-    def create(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        ti = [  [[1], [2], [3], [4]],
-                [[2], [3], [4], [5]],
-                [[3], [4], [5], [6]],
-                [[4], [5], [6], [7]],
-                [[5], [6], [7], [8]],
-                :
-                ]
-        ti.shape = (B, W, 1)
-        """
-        B, W, Dout = self.B, self.W, self.Dout
-        t0 = torch.arange(0, W).view(1, W, Dout)
-        ti = t0
-        for idx in range(B - 1):
-            t1 = t0 + idx + 1
-            ti = torch.cat([ti, t1], axis=0)
-        self.ti = ti.float()
-        Dtc, Dkn = 3, 4
-        self.tc = torch.randint(0, 2, (1, 1, Dtc)).repeat(B, W, 1)  # shape: (B, W, Dtc)
-        self.kn = torch.randn((1, 1, Dkn)).repeat(B, W, 1)  # shape: (B, W, Dkn)
-        if self.model == "cyclic":
-            # self.tg = torch.sin(ti).repeat(1, 1, Dout)  # target
-            self.tg = (
-                torch.sin(2 * self.ti)
-                + 3 * torch.sin(self.ti)
-                + 0.5 * torch.cos(3 * self.ti)
-            ).repeat(1, 1, Dout)
-        elif self.model == "trend":
-            self.tg = (0.0001 * self.ti ** 2 + 0.005 * self.ti + 2).repeat(1, 1, Dout)
-        else:
-            raise NotImplementedError(f"{self.__class__}.create()")
-        return self.ti, self.tc, self.kn, self.tg
-
-    def create_testset(
-        self, offset=10, sz=32
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        ti, tc, kn, tg = self.ti, self.tc, self.kn, self.tg
-        test_ti = (ti + len(ti))[offset : offset + sz]
-        test_tc = tc[offset : offset + sz]
-        test_kn = kn[offset : offset + sz]
-        if self.model == "cyclic":
-            test_tg = tg[offset : offset + sz]
-        elif self.model == "trend":
-            test_tg = (0.0001 * test_ti ** 2 + 0.005 * test_ti + 2).repeat(
-                1, 1, self.Dout
-            )
-        else:
-            raise NotImplementedError(f"{self.__class__}.create_testset()")
-        return test_ti, test_tc, test_kn, test_tg
+                self.optimizer.step(closure)
 
 
 def quantile_loss(
@@ -388,22 +346,27 @@ def get_args():
     parser.add_argument(
         "--max-epoch",
         type=int,
-        default=10 * 1000,
+        default=100,  # 10 * 1000
+    )
+    parser.add_argument(
+        "--log-interval",
+        type=int,
+        default=2,  # 100
     )
     args = parser.parse_args()
     return args
 
 
 if __name__ == "__main__":
-    import datetime
+    from ..dataset.dateset import DatasetToy
 
     args = get_args()
 
     # create toy dataset
     B, W, Dout = 64, 4, 1
-    toydataset = DatasetToy(B, W, Dout, args.model)
+    toydataset = DatasetToy(Dout, args.model)
     ti, tc, kn, tg = toydataset.create()
-    dataset = Items(is_readonly=True).setup(dict(ti=ti, tc=tc, kn=kn, tg=tg))
+    # dataset = Items(is_readonly=True).setup(dict(ti=ti, tc=tc, kn=kn, tg=tg))
 
     # setup model
     dims = (ti.shape[-1], tc.shape[-1], kn.shape[-1])
@@ -432,18 +395,19 @@ if __name__ == "__main__":
 
     params = Items(is_readonly=True).setup(
         dict(
+            batch_size=64,
             quantiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95],
-            log_intervals=100,
+            log_interval=args.log_interval,
         )
     )
     trainer = Trainer(model, optimizer, criterion, writer, params)
     writer.add_graph(model, (ti, tc, kn))
 
     # train
-    trainer.do_train(dataset, epochs=args.max_epoch)
+    trainer.do_train(toydataset, epochs=args.max_epoch)
 
     # experiment log
-    hp = dict(
+    hparams = dict(
         experiment_id=experiment_id,
         model=args.model,
         max_epoch=args.max_epoch,
@@ -451,9 +415,10 @@ if __name__ == "__main__":
         criterion=str(criterion),
     )
     writer.add_hparams(
-        hp,
+        hparams,
         {
             "hparam/loss/train": trainer.loss_train,
             "hparam/loss/valid": trainer.loss_valid,
         },
     )
+    writer.close()
