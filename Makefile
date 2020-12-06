@@ -5,7 +5,7 @@ all: run
 bash: up
 	docker-compose exec app bash
 
-ssh: up
+ssh:
 	docker-compose exec app sudo service ssh start
 
 train predict: up
@@ -43,7 +43,9 @@ tensorboard: up
 	docker-compose exec app tensorboard --host=0.0.0.0 --logdir=$(logdir)
 
 # for docker-compose
-up:
+up: _up ssh
+
+_up:
 	docker-compose up -d
 
 active:
