@@ -10,6 +10,10 @@ from ..util.items import Items
 from ..dataset.batcher import BatchMaker
 
 
+# Tsr = torch.DoubleTensor
+Tsr = torch.Tensor
+
+
 class M(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -33,14 +37,7 @@ class Model(M):
         self.recent = None
         self.ws = ws  # window size
 
-    def forward(
-        self,
-        ti: torch.Tensor,
-        tc: torch.Tensor,
-        kn: torch.Tensor,
-        un: torch.Tensor,
-        tg: torch.Tensor,
-    ):
+    def forward(self, ti: Tsr, tc: Tsr, kn: Tsr, un: Tsr, tg: Tsr):
         r"""
         Args:
             ti: time index
@@ -64,20 +61,55 @@ class Model(M):
         return y
 
 
+class PositionalEncoding(nn.Module):
+    """
+    c.f. https://pytorch.org/tutorials/beginner/transformer_tutorial.html
+    """
+
+    def __init__(self, d_model, dropout=0.0, max_len=512):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-numpy.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)        # (W, D) -> (1, W, D) -> (W, 1, D)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: Tsr) -> Tsr:
+        """
+        Shapes:
+            x: (W, B, D)
+            B: batch size
+            W: window size
+            D: dim
+        """
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)      # (W, B, D)
+
+
 class Cyclic(M):
     def __init__(
         self,
         dim_ins: tuple,
         dim_out: int,
         ws: int,
-        dim_emb=5,
+        dim_emb=4*2,    # dim for embedding
         n_heads=4,
-        k=3,
+        k=5,            # the numbers of sin/cos curves
+        n_layers=1,     # layers of multi-heads
         n_quantiles=7,
-        n_layers=2,
     ):
         super().__init__()  # after this call, to be enabled to access `self.args`
-        self.emb = nn.Linear(sum(dim_ins[1:]), dim_emb).double()
+        n_dim = sum(dim_ins[1:])
+        self.emb = nn.Linear(n_dim, dim_emb)    #.double()
+        # TODO: implement using nn.Embedding
+        ## nn.Embedding
+        S = dim_ins[1]      # S: seq length
+        max_len = max(16, S)
+        self.pos = PositionalEncoding(d_model=dim_emb, max_len=max_len)
 
         # Transformers
         prm = dict(
@@ -86,44 +118,50 @@ class Cyclic(M):
             num_encoder_layers=n_layers,
             num_decoder_layers=n_layers,
         )
-        self.tra = nn.Transformer(**prm).double()
-        self.trb = nn.Transformer(**prm).double()
-        self.trw = nn.Transformer(**prm).double()
-        self.tro = nn.Transformer(**prm).double()
+        self.tr = nn.Transformer(**prm)    # .double()
 
         # linears
-        self.ak = nn.Linear(dim_emb * ws, k * n_quantiles).double()
-        self.bk = nn.Linear(dim_emb * ws, k * n_quantiles).double()
-        self.wk = nn.Linear(dim_emb * ws, k).double()
-        self.ok = nn.Linear(dim_emb * ws, k).double()
+        self.ak = nn.Linear(ws * dim_emb, k * n_quantiles)  # .double()
+        self.bk = nn.Linear(ws * dim_emb, k * n_quantiles)  # .double()
+        self.wk = nn.Linear(ws * dim_emb, k)                # .double()
+        self.ok = nn.Linear(ws * dim_emb, k)                # .double()
 
         # initialize weights
+        weight_interval = 0.1
+        nn.init.uniform_(self.emb.weight, -weight_interval, weight_interval)
         nn.init.kaiming_normal_(self.ak.weight)
         nn.init.kaiming_normal_(self.bk.weight)
         nn.init.xavier_normal_(self.wk.weight)
         nn.init.xavier_normal_(self.ok.weight)
 
+        for fc in [self.emb, self.ak, self.bk, self.wk, self.ok]:
+            nn.init.zeros_(fc.bias)
+
     def forward(
-        self, ti: torch.DoubleTensor, tc: torch.DoubleTensor, kn: torch.DoubleTensor
+        self, ti: Tsr, tc: Tsr, kn: Tsr
     ):
         # embedding
         x = torch.cat([tc, kn], dim=-1)
-        emb = self.emb(x)
+        emb = self.emb(x) * numpy.sqrt(x.shape[-1])
         emb = emb.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
+        emb = self.pos(emb)
 
         # transform
-        def reshape(tsr: torch.DoubleTensor):
+        def reshape(tsr: Tsr) -> Tsr:
             _tsr = tsr.transpose(1, 0)  # (W, B, Demb) -> (B, W, Demb)
-            return _tsr.reshape(-1, self.args.dim_emb * self.args.ws)
+            return _tsr.reshape(-1, self.args.ws * self.args.dim_emb)
 
-        ha = reshape(self.tra.encoder(emb))
-        hb = reshape(self.trb.encoder(emb))
-        hw = reshape(self.trw.encoder(emb))
-        ho = reshape(self.tro.encoder(emb))
-        a = self.ak(ha)
-        b = self.bk(hb)
-        w = torch.sigmoid(self.wk(hw)) / (2 * numpy.pi)
-        o = torch.sigmoid(self.ok(ho)) / numpy.pi
+        z = reshape(self.tr.encoder(emb))
+
+        a = self.ak(z)
+        b = self.bk(z)
+
+        pi = numpy.pi
+        # w = torch.sigmoid(self.wk(z)) / (2 * pi)
+        # o = torch.sigmoid(self.ok(z)) / pi
+        # o = pi/2 + torch.sin(self.ok(z)) / (pi/2)      # map to (0, pi)
+        w = self.wk(z)
+        o = self.ok(z)
 
         # adjusting the shape
         k, q = self.args.k, self.args.n_quantiles
@@ -135,7 +173,7 @@ class Cyclic(M):
         b = b.view(-1, k, q)
 
         # calculate theta (rad)
-        th = 2 * numpy.pi * w * t + o
+        th = 2 * pi * w * t + o
         y = a * torch.cos(th) + b * torch.sin(th)
         y = y.sum(dim=1)
 
@@ -151,11 +189,15 @@ class Trend(M):
         dim_emb=3,
         n_heads=3,
         k=3,
-        n_quantiles=7,
         n_layers=1,
+        n_quantiles=7,
     ):
         super().__init__()  # after this call, to be enabled to access `self.args`
-        self.emb = nn.Linear(sum(dim_ins[0:]), dim_emb).double()
+        self.emb = nn.Linear(sum(dim_ins[0:]), dim_emb)     # .double()
+        # TODO: implement positional encoding
+        S = dim_ins[1]      # S: seq length
+        max_len = max(16, S)
+        self.pos = PositionalEncoding(d_model=dim_emb, max_len=max_len)
 
         # Transformers
         prm = dict(
@@ -164,14 +206,14 @@ class Trend(M):
             num_encoder_layers=n_layers,
             num_decoder_layers=n_layers,
         )
-        self.tra = nn.Transformer(**prm).double()
-        self.trb = nn.Transformer(**prm).double()
-        self.tro = nn.Transformer(**prm).double()
+        self.tra = nn.Transformer(**prm)    # .double()
+        self.trb = nn.Transformer(**prm)    # .double()
+        self.tro = nn.Transformer(**prm)    # .double()
 
         # linears
-        self.ak = nn.Linear(dim_emb * ws, k).double()
-        self.bk = nn.Linear(dim_emb * ws, n_quantiles).double()
-        self.ok = nn.Linear(dim_emb * ws, k).double()
+        self.ak = nn.Linear(ws * dim_emb, k)            # .double()
+        self.bk = nn.Linear(ws * dim_emb, n_quantiles)  # .double()
+        self.ok = nn.Linear(ws * dim_emb, k)            # .double()
         self.relu = nn.ReLU()
 
         # initialize weights
@@ -180,15 +222,16 @@ class Trend(M):
         nn.init.xavier_normal_(self.ok.weight)
 
     def forward(
-        self, ti: torch.DoubleTensor, tc: torch.DoubleTensor, kn: torch.DoubleTensor
+        self, ti: Tsr, tc: Tsr, kn: Tsr
     ):
         # embedding
         x = torch.cat([ti, tc, kn], dim=-1)
-        emb = self.emb(x)
+        emb = self.emb(x) * numpy.sqrt(x.shape[-1])
         emb = emb.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
+        emb = self.pos(emb)
 
         # transform
-        def reshape(tsr: torch.Tensor):
+        def reshape(tsr: Tsr):
             _tsr = tsr.transpose(1, 0)  # (W, B, Demb) -> (B, W, Demb)
             return _tsr.reshape(-1, self.args.dim_emb * self.args.ws)
 
@@ -224,20 +267,28 @@ class Trainer(object):
         self.loss_train = None
         self.loss_valid = None
 
-    def get_quantile(self, x: torch.Tensor, alpha: float):
+    def get_quantile(self, x: Tsr, alpha: float):
         idx = (numpy.array(self.params.quantiles) == alpha).argmax()
         return x[:, idx, :][..., 0]  # just to get a first dim
 
+    def do_pretrain(self, dataset, epochs: int = 500):
+        # use mask
+        # swap seqence
+        pass
+
     def do_train(self, dataset, epochs: int = 500):
-        ti, tc, kn, tg = dataset.ti, dataset.tc, dataset.kn, dataset.tg
+        ti, tc, kn, tg = dataset.trainset.ti, dataset.trainset.tc, dataset.trainset.kn, dataset.trainset.tg
         batch = BatchMaker(bsz=self.params.batch_size)
+
         # train loop
         n_steps = -1
         losses = []
+        # # epoch loop
         for idx in range(epochs):
             shuffle = numpy.random.permutation(range(len(ti)))
             _ti, _tc, _kn, _tg = ti[shuffle], tc[shuffle], kn[shuffle], tg[shuffle]
 
+            # # batch loop
             for bdx, (bti, btc, bkn, btg) in enumerate(
                 zip(batch(_ti), batch(_tc), batch(_kn), batch(_tg))
             ):
@@ -248,19 +299,21 @@ class Trainer(object):
                     y_pred = self.model(bti, btc, bkn)
                     loss = self.criterion(y_pred, btg[:, -1, :], self.params.quantiles)
                     losses.append(loss.item())
+                    assert len(losses) == n_steps + 1
 
                     self.loss_train = loss.item()  # keep latest loss
+                    k = self.params.log_interval
+                    l = loss.item() if n_steps < k else numpy.mean(losses[-k :])
+                    self.writer.add_scalar(
+                        f"loss/step/train", l, n_steps
+                    )
 
                     # logging progress
                     if idx % self.params.log_interval == 0 and idx > 0 and bdx == 0:
-                        mean_loss = numpy.array(losses[n_steps - 20 : n_steps]).mean()
+                        mean_loss = numpy.mean(losses[-k :])
                         print(f"loss[{idx:03d}][{bdx:03d}][{n_steps:05d}]", mean_loss)
 
-                        def make_predictions(
-                            y_pred, tg
-                        ) -> Tuple[
-                            torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
-                        ]:
+                        def make_predictions(y_pred, tg) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
                             pred = y_pred.view(
                                 -1, len(self.params.quantiles), self.model.args.dim_out
                             )
@@ -270,7 +323,8 @@ class Trainer(object):
                             t = tg[:, -1, :][..., 0]
                             return p, p10, p90, t
 
-                        def write_log2tb(preds, loss, pred_type="train") -> None:
+
+                        def write_log2tb(idx, preds, loss, pred_type="train") -> None:
                             for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
                                 dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
                                 self.writer.add_scalars(
@@ -279,26 +333,27 @@ class Trainer(object):
                                     n,
                                 )
                             self.writer.add_scalar(
-                                f"loss/{pred_type}", loss.item(), idx
+                                f"loss/interval/{pred_type}", loss.item(), idx
                             )
+
+                        def do_predict(idx, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr, pred_mode="train") -> Tsr:
+                            bti, btc, bkn, btg = next(batch(ti)), next(batch(tc)), next(batch(kn)), next(batch(tg))
+                            with torch.no_grad():
+                                pred = self.model(bti, btc, bkn)
+                                loss = self.criterion(
+                                    pred, btg[:, -1, :], self.params.quantiles
+                                )
+                            preds = make_predictions(pred, btg)
+                            write_log2tb(idx, preds, loss, pred_mode)
+                            return loss
 
                         # prediction with trainset
-                        preds = make_predictions(y_pred, tg)
-                        write_log2tb(preds, loss, "train")
+                        loss_train = do_predict(idx, ti, tc, kn, tg, pred_mode="train")
+                        self.loss_train = loss_train.item()
 
                         # prediction with testset
-                        test_ti, test_tc, test_kn, test_tg = dataset.create_testset()
-                        test_bti = next(batch(test_ti))
-                        test_btc = next(batch(test_tc))
-                        test_bkn = next(batch(test_kn))
-                        test_btg = next(batch(test_tg))
-                        with torch.no_grad():
-                            test_pred = self.model(test_bti, test_btc, test_bkn)
-                            loss_valid = self.criterion(
-                                test_pred, test_btg[:, -1, :], self.params.quantiles
-                            )
-                        preds = make_predictions(test_pred, test_btg)
-                        write_log2tb(preds, loss_valid, "valid")
+                        testset = dataset.create_testset()
+                        loss_valid = do_predict(idx, testset.ti, testset.tc, testset.kn, testset.tg, pred_mode="valid")
                         self.loss_valid = loss_valid.item()
 
                     loss.backward()
@@ -308,11 +363,11 @@ class Trainer(object):
 
 
 def quantile_loss(
-    pred_y: torch.Tensor,
-    tg: torch.Tensor,
+    pred_y: Tsr,
+    tg: Tsr,
     quantiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95],
     with_mse=False,
-) -> torch.Tensor:
+) -> Tsr:
 
     losses = []
     for idx, qtl in enumerate(quantiles):
@@ -326,10 +381,10 @@ def quantile_loss(
 
 
 def quantile_loss_with_mse(
-    pred_y: torch.Tensor,
-    tg: torch.Tensor,
+    pred_y: Tsr,
+    tg: Tsr,
     quantiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95],
-) -> torch.Tensor:
+) -> Tsr:
     return quantile_loss(pred_y, tg, quantiles, with_mse=True)
 
 
@@ -346,19 +401,19 @@ def get_args():
     parser.add_argument(
         "--max-epoch",
         type=int,
-        default=100,  # 10 * 1000
+        default=30 * 1000,
     )
     parser.add_argument(
         "--log-interval",
         type=int,
-        default=2,  # 100
+        default=100,
     )
     args = parser.parse_args()
     return args
 
 
 if __name__ == "__main__":
-    from ..dataset.dateset import DatasetToy
+    from ..dataset.dateset import DatesetToy
 
     args = get_args()
 
@@ -367,29 +422,33 @@ if __name__ == "__main__":
     print("device:", device)
 
     # create toy dataset
-    B, W, Dout = 64, 4, 1
-    toydataset = DatasetToy(Dout, args.model, device=device)
-    ti, tc, kn, tg = toydataset.create()
+    B, W, Dout = 64, 14, 1
+    toydataset = DatesetToy(Dout, W, args.model, device=device)
+    trainset = toydataset.create_trainset()
+
+    # setup criterion
+    criterionner = dict(cyclic=quantile_loss, trend=quantile_loss_with_mse)
+    criterion = criterionner[args.model]
 
     # setup model
-    dims = (ti.shape[-1], tc.shape[-1], kn.shape[-1])
+    dims = (trainset.ti.shape[-1], trainset.tc.shape[-1], trainset.kn.shape[-1])
     modeller = dict(cyclic=Cyclic, trend=Trend)
     model = modeller[args.model](
         dim_ins=dims,
-        dim_out=tg.shape[-1],
-        ws=ti.shape[1],
-        dim_emb=4 * 2,
-        n_heads=2,
+        dim_out=trainset.tg.shape[-1],
+        ws=trainset.ti.shape[1],
+        dim_emb=8,
+        n_heads=4,
         k=3,
-        n_quantiles=7,
+        n_layers=1,
+        n_quantiles=len(criterion.__defaults__[0]), # like len(quantiles)
     ).to(device)
+    print("model.args:", model.args)
 
     # setup optimizer and criterion
     # optimizer = optim.LBFGS(model.parameters(), lr=0.8)     # Newton
     # optimizer = optim.SGD(model.parameters(), lr=0.001)
-    optimizer = optim.Adam(model.parameters(), lr=0.0001)
-    criterionner = dict(cyclic=quantile_loss, trend=quantile_loss_with_mse)
-    criterion = criterionner[args.model]
+    optimizer = optim.Adam(model.parameters(), lr=0.01)
 
     # setup tensorboard writer
     experiment_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
@@ -398,13 +457,13 @@ if __name__ == "__main__":
 
     params = Items(is_readonly=True).setup(
         dict(
-            batch_size=64,
+            batch_size=B,
             quantiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95],
             log_interval=args.log_interval,
         )
     )
     trainer = Trainer(model, optimizer, criterion, writer, params)
-    writer.add_graph(model, (ti, tc, kn))
+    writer.add_graph(model, (trainset.ti, trainset.tc, trainset.kn))
 
     # train
     trainer.do_train(toydataset, epochs=args.max_epoch)
