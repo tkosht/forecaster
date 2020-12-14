@@ -26,5 +26,7 @@
 		"ms-python.python",
 		"ms-python.vscode-pylance",
 		"donjayamanne.python-extension-pack",
+		"tushortz.python-extended-snippets",
+		"littlefoxteam.vscode-python",
 	]
 }
