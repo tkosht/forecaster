@@ -9,6 +9,9 @@ from torch.utils.tensorboard import SummaryWriter
 from ..util.items import Items
 from ..dataset.batcher import BatchMaker
 
+import mlflow
+import pickle
+
 
 # Tsr = torch.DoubleTensor
 Tsr = torch.Tensor
@@ -361,6 +364,8 @@ class Trainer(object):
 
                 self.optimizer.step(closure)
 
+            if idx % self.params.save_interval == 0 and idx > 0:
+                mlflow.pytorch.log_model(self.model, f"models.{idx:05d}", pickle_module=pickle)
 
 def quantile_loss(
     pred_y: Tsr,
@@ -408,6 +413,16 @@ def get_args():
         type=int,
         default=100,
     )
+    parser.add_argument(
+        "--save-interval",
+        type=int,
+        default=10000,
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=False,
+    )
     args = parser.parse_args()
     return args
 
@@ -430,19 +445,25 @@ if __name__ == "__main__":
     criterionner = dict(cyclic=quantile_loss, trend=quantile_loss_with_mse)
     criterion = criterionner[args.model]
 
-    # setup model
-    dims = (trainset.ti.shape[-1], trainset.tc.shape[-1], trainset.kn.shape[-1])
-    modeller = dict(cyclic=Cyclic, trend=Trend)
-    model = modeller[args.model](
-        dim_ins=dims,
-        dim_out=trainset.tg.shape[-1],
-        ws=trainset.ti.shape[1],
-        dim_emb=8,
-        n_heads=4,
-        k=3,
-        n_layers=1,
-        n_quantiles=len(criterion.__defaults__[0]), # like len(quantiles)
-    ).to(device)
+    if args.resume:
+        print("loading the latest model ...")
+        model = mlflow.pytorch.load_model(f"models:/latest_model/1")
+        print("loading done.")
+    else:
+        # setup model
+        dims = (trainset.ti.shape[-1], trainset.tc.shape[-1], trainset.kn.shape[-1])
+        modeller = dict(cyclic=Cyclic, trend=Trend)
+        model = modeller[args.model](
+            dim_ins=dims,
+            dim_out=trainset.tg.shape[-1],
+            ws=trainset.ti.shape[1],
+            dim_emb=8,
+            n_heads=4,
+            k=3,
+            n_layers=1,
+            n_quantiles=len(criterion.__defaults__[0]), # like len(quantiles)
+        )
+    model.to(device)
     print("model.args:", model.args)
 
     # setup optimizer and criterion
@@ -460,6 +481,7 @@ if __name__ == "__main__":
             batch_size=B,
             quantiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95],
             log_interval=args.log_interval,
+            save_interval=args.save_interval,
         )
     )
     trainer = Trainer(model, optimizer, criterion, writer, params)
@@ -484,3 +506,5 @@ if __name__ == "__main__":
         },
     )
     writer.close()
+
+    mlflow.pytorch.log_model(model, "models", registered_model_name="latest_model", pickle_module=pickle)
