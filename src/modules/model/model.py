@@ -446,8 +446,14 @@ if __name__ == "__main__":
     criterion = criterionner[args.model]
 
     if args.resume:
-        print("loading the latest model ...")
-        model = mlflow.pytorch.load_model(f"models:/latest_model/1")
+        from mlflow.tracking import MlflowClient
+
+        client = MlflowClient()
+        rm, = client.list_registered_models()
+        lm = dict(rm)["latest_versions"][0]
+        uri = f"models:/latest_model/{lm.version}"
+        print(f"loading the latest model ... [{uri}]")
+        model = mlflow.pytorch.load_model(uri)
         print("loading done.")
     else:
         # setup model
