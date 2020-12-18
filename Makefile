@@ -11,11 +11,16 @@ ssh:
 train predict: up
 	docker-compose exec app python -m src.$@
 
-test.toy: up
-	docker-compose exec app python -m src.modules.model.model
+test.toy: test.toy.cyclic
+
+test.toy.cyclic: up
+	docker-compose exec app mlflow run -e cyclic --no-conda .
 
 test.toy.trend: up
-	docker-compose exec app python -m src.modules.model.model --model=trend
+	docker-compose exec app mlflow run -e trend --no-conda .
+
+test.toy.resume: up
+	docker-compose exec app mlflow run -e resume --no-conda .
 
 # switch mode
 gpu:
@@ -37,8 +42,11 @@ debug: up
 mlflow-ui: up
 	docker-compose exec app mlflow ui --host=0.0.0.0
 
+mlflow-server: up
+	docker-compose exec app mlflow server --host=0.0.0.0 --backend-store-uri sqlite:///result/mlflow.db --default-artifact-root=mlruns
+
 tensorboard: up
-	$(eval logdir:=$(shell ls -trd result/* | tail -n 1))
+	$(eval logdir:=$(shell ls -trd result/*/ | tail -n 1))
 	echo $(logdir)
 	docker-compose exec app tensorboard --host=0.0.0.0 --logdir=$(logdir)
 
@@ -66,4 +74,4 @@ clean:
 	sudo rm -rf app/__pycache__
 
 clean-result:
-	rm -rf result/*
+	rm -rf result/* mlruns

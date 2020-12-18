@@ -1,4 +1,11 @@
 {
     "python.pythonPath": "/usr/bin/python",
-    "jupyter.jupyterServerType": "local"
+    "jupyter.jupyterServerType": "local",
+    "docker.host":"ssh://server",
+    "files.watcherExclude": {
+        "**/.git/objects/**": true,
+        "**/.git/subtree-cache/**": true,
+        "**/result/*/**": true,
+        "**/mlruns/*/**": true,
+      },
 }
