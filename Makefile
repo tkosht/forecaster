@@ -46,7 +46,7 @@ mlflow-server: up
 	docker-compose exec app mlflow server --host=0.0.0.0 --backend-store-uri sqlite:///result/mlflow.db --default-artifact-root=mlruns
 
 tensorboard: up
-	$(eval logdir:=$(shell ls -trd result/* | tail -n 1))
+	$(eval logdir:=$(shell ls -trd result/*/ | tail -n 1))
 	echo $(logdir)
 	docker-compose exec app tensorboard --host=0.0.0.0 --logdir=$(logdir)
 
