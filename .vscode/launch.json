@@ -19,17 +19,20 @@
             "justMyCode": false
         },
         {
-            "name": "model.py: cyclic",
+            "name": "toy: cyclic",
             "type": "python",
             "request": "launch",
-            "module": "src.modules.model.model",
+            "module": "src.modules.trainer",
+            "args": [
+                "--model=cyclic"
+            ],
             "justMyCode": false
         },
         {
-            "name": "model.py: trend",
+            "name": "toy: trend",
             "type": "python",
             "request": "launch",
-            "module": "src.modules.model.model",
+            "module": "src.modules.trainer",
             "args": [
                 "--model=trend"
             ],
