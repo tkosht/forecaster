@@ -44,6 +44,10 @@ class Trainer(object):
         self.train_model = self.model.pretrain
         self._do_train(dataset, epochs)
 
+    def do_train(self, dataset, epochs: int = 500):
+        self.train_model = self.model
+        self._do_train(dataset, epochs)
+
     def _make_predictions(self, y_pred, tg) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
         pred = y_pred.view(-1, len(self.params.quantiles), self.model.args.dim_out)
         p = self.get_quantile(pred, alpha=0.5)
@@ -79,10 +83,6 @@ class Trainer(object):
         self._write_log2tb(idx, preds, loss, pred_mode)
         return loss
 
-    def do_train(self, dataset, epochs: int = 500):
-        self.train_model = self.model
-        self._do_train(dataset, epochs)
-
     def _do_train(self, dataset, epochs: int = 500):
         ti, tc, kn, tg = (
             dataset.trainset.ti,
@@ -108,7 +108,7 @@ class Trainer(object):
 
                 def closure():
                     self.optimizer.zero_grad()
-                    y_pred = self.train_model(bti, btc, bkn)
+                    y_pred = self.train_model(bti, btc, bkn, btg)
                     loss = self.criterion(y_pred, btg[:, -1, :], self.params.quantiles)
                     losses.append(loss.item())
                     assert len(losses) == n_steps + 1
@@ -151,7 +151,10 @@ class Trainer(object):
                     self.model, f"models.{idx:05d}", pickle_module=pickle
                 )
 
-    def log_experiment_log(self, args):
+    def finalize(self, args):
+        self.log_experiments(args)
+
+    def log_experiments(self, args):
         # experiment log
         hparams = dict(
             experiment_id=self.experiment_id,
@@ -299,10 +302,10 @@ if __name__ == "__main__":
     trainer = Trainer(model, optimizer, criterion, params)
 
     # pretrain
-    # trainer.do_pretrain(toydataset, epochs=args.max_epoch)
+    trainer.do_pretrain(toydataset, epochs=args.max_epoch)
 
     # train
     trainer.do_train(toydataset, epochs=args.max_epoch)
 
-    # log experiments
-    trainer.log_experiment_log(args)
+    # finalize
+    trainer.finalize(args)

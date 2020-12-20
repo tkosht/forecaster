@@ -116,6 +116,7 @@ class Cyclic(M):
         self.tr = nn.Transformer(**prm)  # .double()
 
         # linears
+        self.dc = nn.Linear(ws * dim_emb, n_quantiles)  # .double()
         self.ak = nn.Linear(ws * dim_emb, k * n_quantiles)  # .double()
         self.bk = nn.Linear(ws * dim_emb, k * n_quantiles)  # .double()
         self.wk = nn.Linear(ws * dim_emb, k)  # .double()
@@ -133,25 +134,44 @@ class Cyclic(M):
             nn.init.zeros_(fc.bias)
 
     def pretrain(self, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr):
-        # embedding
+        # concat input
         x = torch.cat([tc, kn], dim=-1)
+
+        # make mask
+        B, W, D = x.shape
+        zr = torch.zeros((1, W, D))
+        mask_vector = -1 * torch.ones_like(zr)  # (1, W, D)
+        probs = 0.15 * torch.ones(1, W, 1)  # (1, W, 1)
+        msk = torch.bernoulli(probs).repeat(1, 1, D)  # (1, W, D)
+        mask_vector *= msk  # (1, W, D)
+        mask_vector = mask_vector.repeat(B, 1, 1)
+        unmsk = 1 - msk.type(torch.bool).type(torch.long)  # (1, W, D)
+        assert (msk[0, :, 0] + unmsk[0, :, 0] == torch.ones(W)).all().item()
+
+        # masking
+        x *= unmsk.repeat(B, 1, 1).to(x.device)
+        x += mask_vector.to(x.device)
+
+        # embedding
         emb_X = self.emb_X(x) * numpy.sqrt(x.shape[-1])
         emb_X = emb_X.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
         emb_X = self.pos(emb_X)
 
-        # # - for y
-        # y = tg
-        # emb_X = self.emb_X(x) * numpy.sqrt(x.shape[-1])
-        # emb_X = emb_X.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
+        # - for y
+        y = tg
+        emb_y = self.emb_y(y) * numpy.sqrt(y.shape[-1])
+        emb_y = emb_y.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
 
-        # # transform
-        # def reshape(tsr: Tsr) -> Tsr:
-        #     _tsr = tsr.transpose(1, 0)  # (W, B, Demb) -> (B, W, Demb)
-        #     return _tsr.reshape(-1, self.args.ws * self.args.dim_emb)
+        # transform
+        def reshape(tsr: Tsr) -> Tsr:
+            _tsr = tsr.transpose(1, 0)  # (W, B, Demb) -> (B, W, Demb)
+            return _tsr.reshape(-1, self.args.ws * self.args.dim_emb)
 
-        # encoded = self.tr(emb_X, tg)
+        encoded = reshape(self.tr(emb_X, emb_y))
+        y = self.dc(encoded)
+        return y
 
-    def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
+    def forward(self, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr = None):
         # embedding
         # - for X
         x = torch.cat([tc, kn], dim=-1)
