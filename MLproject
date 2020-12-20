@@ -4,9 +4,9 @@ entry_points:
   main:
     parameters:
       model: {type: str, default: "cyclic"}
-      max-epoch: {type: int, default: 20000}
+      max-epoch: {type: int, default: 300}
       log-interval: {type: int, default: 100}
-      save-interval: {type: int, default: 2000}
+      save-interval: {type: int, default: 200}
     command: |
           python -m src.modules.trainer \
             --model={model} \
@@ -16,9 +16,9 @@ entry_points:
   cyclic:
     parameters:
       model: {type: str, default: "cyclic"}
-      max-epoch: {type: int, default: 300}        # 20000
+      max-epoch: {type: int, default: 20000}
       log-interval: {type: int, default: 100}
-      save-interval: {type: int, default: 200}      # 2000
+      save-interval: {type: int, default: 2000}
     command: |
           python -m src.modules.trainer \
             --model={model} \

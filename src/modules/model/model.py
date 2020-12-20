@@ -99,9 +99,9 @@ class Cyclic(M):
         n_quantiles=7,
     ):
         super().__init__()  # after this call, to be enabled to access `self.args`
-        n_dim = sum(dim_ins[1:])
-        self.emb_X = nn.Linear(n_dim, dim_emb)  # .double()
-        self.emb_y = nn.Linear(dim_out, dim_emb)  # .double()
+        n_dim = sum(dim_ins[0:])
+        self.emb_encode = nn.Linear(n_dim, dim_emb)  # .double()
+        self.emb_decode = nn.Linear(n_dim, dim_emb)  # .double()
         S = dim_ins[1]  # S: seq length
         max_len = max(16, S)
         self.pos = PositionalEncoding(d_model=dim_emb, max_len=max_len)
@@ -124,24 +124,39 @@ class Cyclic(M):
 
         # initialize weights
         weight_interval = 0.1
-        nn.init.uniform_(self.emb_X.weight, -weight_interval, weight_interval)
+        nn.init.uniform_(self.emb_encode.weight, -weight_interval, weight_interval)
+        nn.init.uniform_(self.emb_decode.weight, -weight_interval, weight_interval)
+        nn.init.kaiming_normal_(self.dc.weight)
         nn.init.kaiming_normal_(self.ak.weight)
         nn.init.kaiming_normal_(self.bk.weight)
         nn.init.xavier_normal_(self.wk.weight)
         nn.init.xavier_normal_(self.ok.weight)
 
-        for fc in [self.emb_X, self.ak, self.bk, self.wk, self.ok]:
+        for fc in [
+            self.emb_encode,
+            self.emb_decode,
+            self.dc,
+            self.ak,
+            self.bk,
+            self.wk,
+            self.ok,
+        ]:
             nn.init.zeros_(fc.bias)
 
-    def pretrain(self, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr):
+    def pretrain(self, ti: Tsr, tc: Tsr, kn: Tsr):
+        # setup
+        # mask_rate = 0.15
+        mask_rate = 0.20
+
         # concat input
-        x = torch.cat([tc, kn], dim=-1)
+        x = torch.cat([ti, tc, kn], dim=-1)  # as input
+        y = x.clone()  # as target
 
         # make mask
         B, W, D = x.shape
         zr = torch.zeros((1, W, D))
         mask_vector = -1 * torch.ones_like(zr)  # (1, W, D)
-        probs = 0.15 * torch.ones(1, W, 1)  # (1, W, 1)
+        probs = mask_rate * torch.ones(1, W, 1)  # (1, W, 1)
         msk = torch.bernoulli(probs).repeat(1, 1, D)  # (1, W, D)
         mask_vector *= msk  # (1, W, D)
         mask_vector = mask_vector.repeat(B, 1, 1)
@@ -153,38 +168,38 @@ class Cyclic(M):
         x += mask_vector.to(x.device)
 
         # embedding
-        emb_X = self.emb_X(x) * numpy.sqrt(x.shape[-1])
-        emb_X = emb_X.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
-        emb_X = self.pos(emb_X)
+        emb_encode = self.emb_encode(x) * numpy.sqrt(x.shape[-1])
+        emb_encode = emb_encode.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
+        emb_encode = self.pos(emb_encode)
 
         # - for y
-        y = tg
-        emb_y = self.emb_y(y) * numpy.sqrt(y.shape[-1])
-        emb_y = emb_y.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
+        # emb_decode = self.emb_decode(y) * numpy.sqrt(y.shape[-1])
+        emb_decode = self.emb_encode(y) * numpy.sqrt(y.shape[-1])
+        emb_decode = emb_decode.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
 
         # transform
         def reshape(tsr: Tsr) -> Tsr:
             _tsr = tsr.transpose(1, 0)  # (W, B, Demb) -> (B, W, Demb)
             return _tsr.reshape(-1, self.args.ws * self.args.dim_emb)
 
-        encoded = reshape(self.tr(emb_X, emb_y))
+        encoded = reshape(self.tr(emb_encode, emb_decode))
         y = self.dc(encoded)
         return y
 
-    def forward(self, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr = None):
+    def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
         # embedding
         # - for X
-        x = torch.cat([tc, kn], dim=-1)
-        emb_X = self.emb_X(x) * numpy.sqrt(x.shape[-1])
-        emb_X = emb_X.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
-        emb_X = self.pos(emb_X)
+        x = torch.cat([ti, tc, kn], dim=-1)
+        emb_encode = self.emb_encode(x) * numpy.sqrt(x.shape[-1])
+        emb_encode = emb_encode.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
+        emb_encode = self.pos(emb_encode)
 
         # transform
         def reshape(tsr: Tsr) -> Tsr:
             _tsr = tsr.transpose(1, 0)  # (W, B, Demb) -> (B, W, Demb)
             return _tsr.reshape(-1, self.args.ws * self.args.dim_emb)
 
-        z = reshape(self.tr.encoder(emb_X))
+        z = reshape(self.tr.encoder(emb_encode))
 
         a = self.ak(z)
         b = self.bk(z)
@@ -226,7 +241,7 @@ class Trend(M):
         n_quantiles=7,
     ):
         super().__init__()  # after this call, to be enabled to access `self.args`
-        self.emb_X = nn.Linear(sum(dim_ins[0:]), dim_emb)  # .double()
+        self.emb_encode = nn.Linear(sum(dim_ins[0:]), dim_emb)  # .double()
         S = dim_ins[1]  # S: seq length
         max_len = max(16, S)
         self.pos = PositionalEncoding(d_model=dim_emb, max_len=max_len)
@@ -256,18 +271,18 @@ class Trend(M):
     def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
         # embedding
         x = torch.cat([ti, tc, kn], dim=-1)
-        emb_X = self.emb_X(x) * numpy.sqrt(x.shape[-1])
-        emb_X = emb_X.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
-        emb_X = self.pos(emb_X)
+        emb_encode = self.emb_encode(x) * numpy.sqrt(x.shape[-1])
+        emb_encode = emb_encode.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
+        emb_encode = self.pos(emb_encode)
 
         # transform
         def reshape(tsr: Tsr):
             _tsr = tsr.transpose(1, 0)  # (W, B, Demb) -> (B, W, Demb)
             return _tsr.reshape(-1, self.args.dim_emb * self.args.ws)
 
-        ha = reshape(self.tra.encoder(emb_X))
-        hb = reshape(self.trb.encoder(emb_X))
-        ho = reshape(self.tro.encoder(emb_X))
+        ha = reshape(self.tra.encoder(emb_encode))
+        hb = reshape(self.trb.encoder(emb_encode))
+        ho = reshape(self.tro.encoder(emb_encode))
         a = 2 * torch.tanh(self.ak(ha))
         b = self.bk(hb)
         o = self.ok(ho)

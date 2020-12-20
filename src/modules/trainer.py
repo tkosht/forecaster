@@ -48,7 +48,14 @@ class Trainer(object):
         self.train_model = self.model
         self._do_train(dataset, epochs)
 
+    def _get_train_mode(self):
+        mode = "train" if self.train_model == self.model else "pretrain"
+        return mode
+
     def _do_train(self, dataset, epochs: int = 500):
+        train_mode = self._get_train_mode()
+        print(f"##### {train_mode} #####")
+
         ti, tc, kn, tg = (
             dataset.trainset.ti,
             dataset.trainset.tc,
@@ -73,7 +80,7 @@ class Trainer(object):
 
                 def closure():
                     self.optimizer.zero_grad()
-                    y_pred = self.train_model(bti, btc, bkn, btg)
+                    y_pred = self.train_model(bti, btc, bkn)
                     loss = self.criterion(y_pred, btg[:, -1, :], self.params.quantiles)
                     losses.append(loss.item())
                     assert len(losses) == n_steps + 1
@@ -81,12 +88,17 @@ class Trainer(object):
                     self.loss_train = loss.item()  # keep latest loss
                     k = self.params.log_interval
                     _loss = loss.item() if n_steps < k else numpy.mean(losses[-k:])
-                    self.writer.add_scalar("loss/step/train", _loss, n_steps)
+                    self.writer.add_scalar(
+                        f"{train_mode}/loss/step/train", _loss, n_steps
+                    )
 
                     # logging progress
                     if idx % self.params.log_interval == 0 and idx > 0 and bdx == 0:
                         mean_loss = numpy.mean(losses[-k:])
-                        print(f"loss[{idx:03d}][{bdx:03d}][{n_steps:05d}]", mean_loss)
+                        print(
+                            f"{train_mode}/loss[{idx:03d}][{bdx:03d}][{n_steps:05d}]",
+                            mean_loss,
+                        )
 
                         # prediction with trainset
                         loss_train = self._predict(
@@ -142,15 +154,16 @@ class Trainer(object):
         return p, p10, p90, t
 
     def _write_log2tb(self, idx, preds, loss, pred_type="train") -> None:
+        train_mode = self._get_train_mode()
         for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
             dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
             self.writer.add_scalars(
-                f"{self.train_model}/prediction/epoch_{idx:03d}/{pred_type}",
+                f"{train_mode}/prediction/epoch_{idx:03d}/{pred_type}",
                 dct_pred,
                 n,
             )
         self.writer.add_scalar(
-            f"{self.train_model}/loss/interval/{pred_type}", loss.item(), idx
+            f"{train_mode}/loss/interval/{pred_type}", loss.item(), idx
         )
 
     def finalize(self, args):
