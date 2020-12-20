@@ -48,41 +48,6 @@ class Trainer(object):
         self.train_model = self.model
         self._do_train(dataset, epochs)
 
-    def _make_predictions(self, y_pred, tg) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
-        pred = y_pred.view(-1, len(self.params.quantiles), self.model.args.dim_out)
-        p = self.get_quantile(pred, alpha=0.5)
-        p10 = self.get_quantile(pred, alpha=0.1)
-        p90 = self.get_quantile(pred, alpha=0.9)
-        t = tg[:, -1, :][..., 0]
-        return p, p10, p90, t
-
-    def _write_log2tb(self, idx, preds, loss, pred_type="train") -> None:
-        for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
-            dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
-            self.writer.add_scalars(
-                f"prediction/epoch_{idx:03d}/{pred_type}",
-                dct_pred,
-                n,
-            )
-        self.writer.add_scalar(f"loss/interval/{pred_type}", loss.item(), idx)
-
-    def _predict(
-        self, idx, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr, pred_mode="train"
-    ) -> Tsr:
-        batch = BatchMaker(bsz=self.params.batch_size)
-        bti, btc, bkn, btg = (
-            next(batch(ti)),
-            next(batch(tc)),
-            next(batch(kn)),
-            next(batch(tg)),
-        )
-        with torch.no_grad():
-            pred = self.model(bti, btc, bkn)
-            loss = self.criterion(pred, btg[:, -1, :], self.params.quantiles)
-        preds = self._make_predictions(pred, btg)
-        self._write_log2tb(idx, preds, loss, pred_mode)
-        return loss
-
     def _do_train(self, dataset, epochs: int = 500):
         ti, tc, kn, tg = (
             dataset.trainset.ti,
@@ -151,10 +116,47 @@ class Trainer(object):
                     self.model, f"models.{idx:05d}", pickle_module=pickle
                 )
 
-    def finalize(self, args):
-        self.log_experiments(args)
+    def _predict(
+        self, idx, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr, pred_mode="train"
+    ) -> Tsr:
+        batch = BatchMaker(bsz=self.params.batch_size)
+        bti, btc, bkn, btg = (
+            next(batch(ti)),
+            next(batch(tc)),
+            next(batch(kn)),
+            next(batch(tg)),
+        )
+        with torch.no_grad():
+            pred = self.model(bti, btc, bkn)
+            loss = self.criterion(pred, btg[:, -1, :], self.params.quantiles)
+        preds = self._make_predictions(pred, btg)
+        self._write_log2tb(idx, preds, loss, pred_mode)
+        return loss
 
-    def log_experiments(self, args):
+    def _make_predictions(self, y_pred, tg) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
+        pred = y_pred.view(-1, len(self.params.quantiles), self.model.args.dim_out)
+        p = self.get_quantile(pred, alpha=0.5)
+        p10 = self.get_quantile(pred, alpha=0.1)
+        p90 = self.get_quantile(pred, alpha=0.9)
+        t = tg[:, -1, :][..., 0]
+        return p, p10, p90, t
+
+    def _write_log2tb(self, idx, preds, loss, pred_type="train") -> None:
+        for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
+            dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
+            self.writer.add_scalars(
+                f"{self.train_model}/prediction/epoch_{idx:03d}/{pred_type}",
+                dct_pred,
+                n,
+            )
+        self.writer.add_scalar(
+            f"{self.train_model}/loss/interval/{pred_type}", loss.item(), idx
+        )
+
+    def finalize(self, args):
+        self._log_experiments(args)
+
+    def _log_experiments(self, args):
         # experiment log
         hparams = dict(
             experiment_id=self.experiment_id,
