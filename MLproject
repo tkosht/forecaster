@@ -4,11 +4,11 @@ entry_points:
   main:
     parameters:
       model: {type: str, default: "cyclic"}
-      max-epoch: {type: int, default: 10000}
+      max-epoch: {type: int, default: 20000}
       log-interval: {type: int, default: 100}
       save-interval: {type: int, default: 2000}
     command: |
-          python -m src.modules.model.model \
+          python -m src.modules.trainer \
             --model={model} \
             --max-epoch={max-epoch} \
             --log-interval={log-interval} \
@@ -16,11 +16,11 @@ entry_points:
   cyclic:
     parameters:
       model: {type: str, default: "cyclic"}
-      max-epoch: {type: int, default: 10000}
+      max-epoch: {type: int, default: 300}        # 20000
       log-interval: {type: int, default: 100}
-      save-interval: {type: int, default: 2000}
+      save-interval: {type: int, default: 200}      # 2000
     command: |
-          python -m src.modules.model.model \
+          python -m src.modules.trainer \
             --model={model} \
             --max-epoch={max-epoch} \
             --log-interval={log-interval} \
@@ -28,11 +28,11 @@ entry_points:
   trend:
     parameters:
       model: {type: str, default: "trend"}
-      max-epoch: {type: int, default: 10000}
+      max-epoch: {type: int, default: 20000}
       log-interval: {type: int, default: 100}
       save-interval: {type: int, default: 2000}
     command: |
-          python -m src.modules.model.model \
+          python -m src.modules.trainer \
             --model={model} \
             --max-epoch={max-epoch} \
             --log-interval={log-interval} \
@@ -40,11 +40,11 @@ entry_points:
 
   resume:
     parameters:
-      max-epoch: {type: int, default: 10000}
+      max-epoch: {type: int, default: 20000}
       log-interval: {type: int, default: 100}
       save-interval: {type: int, default: 2000}
     command: |
-          python -m src.modules.model.model \
+          python -m src.modules.trainer \
             --resume \
             --max-epoch={max-epoch} \
             --log-interval={log-interval} \
