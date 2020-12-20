@@ -274,7 +274,7 @@ class Trainer(object):
         # swap seqence
         pass
 
-    def make_predictions(self, y_pred, tg) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
+    def _make_predictions(self, y_pred, tg) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
         pred = y_pred.view(-1, len(self.params.quantiles), self.model.args.dim_out)
         p = self.get_quantile(pred, alpha=0.5)
         p10 = self.get_quantile(pred, alpha=0.1)
@@ -282,7 +282,7 @@ class Trainer(object):
         t = tg[:, -1, :][..., 0]
         return p, p10, p90, t
 
-    def write_log2tb(self, idx, preds, loss, pred_type="train") -> None:
+    def _write_log2tb(self, idx, preds, loss, pred_type="train") -> None:
         for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
             dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
             self.writer.add_scalars(
@@ -305,8 +305,8 @@ class Trainer(object):
         with torch.no_grad():
             pred = self.model(bti, btc, bkn)
             loss = self.criterion(pred, btg[:, -1, :], self.params.quantiles)
-        preds = self.make_predictions(pred, btg)
-        self.write_log2tb(idx, preds, loss, pred_mode)
+        preds = self._make_predictions(pred, btg)
+        self._write_log2tb(idx, preds, loss, pred_mode)
         return loss
 
     def do_train(self, dataset, epochs: int = 500):
