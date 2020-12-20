@@ -274,6 +274,41 @@ class Trainer(object):
         # swap seqence
         pass
 
+    def make_predictions(self, y_pred, tg) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
+        pred = y_pred.view(-1, len(self.params.quantiles), self.model.args.dim_out)
+        p = self.get_quantile(pred, alpha=0.5)
+        p10 = self.get_quantile(pred, alpha=0.1)
+        p90 = self.get_quantile(pred, alpha=0.9)
+        t = tg[:, -1, :][..., 0]
+        return p, p10, p90, t
+
+    def write_log2tb(self, idx, preds, loss, pred_type="train") -> None:
+        for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
+            dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
+            self.writer.add_scalars(
+                f"prediction/epoch_{idx:03d}/{pred_type}",
+                dct_pred,
+                n,
+            )
+        self.writer.add_scalar(f"loss/interval/{pred_type}", loss.item(), idx)
+
+    def _predict(
+        self, idx, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr, pred_mode="train"
+    ) -> Tsr:
+        batch = BatchMaker(bsz=self.params.batch_size)
+        bti, btc, bkn, btg = (
+            next(batch(ti)),
+            next(batch(tc)),
+            next(batch(kn)),
+            next(batch(tg)),
+        )
+        with torch.no_grad():
+            pred = self.model(bti, btc, bkn)
+            loss = self.criterion(pred, btg[:, -1, :], self.params.quantiles)
+        preds = self.make_predictions(pred, btg)
+        self.write_log2tb(idx, preds, loss, pred_mode)
+        return loss
+
     def do_train(self, dataset, epochs: int = 500):
         ti, tc, kn, tg = (
             dataset.trainset.ti,
@@ -306,61 +341,23 @@ class Trainer(object):
 
                     self.loss_train = loss.item()  # keep latest loss
                     k = self.params.log_interval
-                    l = loss.item() if n_steps < k else numpy.mean(losses[-k:])
-                    self.writer.add_scalar(f"loss/step/train", l, n_steps)
+                    _loss = loss.item() if n_steps < k else numpy.mean(losses[-k:])
+                    self.writer.add_scalar("loss/step/train", _loss, n_steps)
 
                     # logging progress
                     if idx % self.params.log_interval == 0 and idx > 0 and bdx == 0:
                         mean_loss = numpy.mean(losses[-k:])
                         print(f"loss[{idx:03d}][{bdx:03d}][{n_steps:05d}]", mean_loss)
 
-                        def make_predictions(y_pred, tg) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
-                            pred = y_pred.view(
-                                -1, len(self.params.quantiles), self.model.args.dim_out
-                            )
-                            p = self.get_quantile(pred, alpha=0.5)
-                            p10 = self.get_quantile(pred, alpha=0.1)
-                            p90 = self.get_quantile(pred, alpha=0.9)
-                            t = tg[:, -1, :][..., 0]
-                            return p, p10, p90, t
-
-                        def write_log2tb(idx, preds, loss, pred_type="train") -> None:
-                            for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
-                                dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
-                                self.writer.add_scalars(
-                                    f"prediction/epoch_{idx:03d}/{pred_type}",
-                                    dct_pred,
-                                    n,
-                                )
-                            self.writer.add_scalar(
-                                f"loss/interval/{pred_type}", loss.item(), idx
-                            )
-
-                        def do_predict(
-                            idx, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr, pred_mode="train"
-                        ) -> Tsr:
-                            bti, btc, bkn, btg = (
-                                next(batch(ti)),
-                                next(batch(tc)),
-                                next(batch(kn)),
-                                next(batch(tg)),
-                            )
-                            with torch.no_grad():
-                                pred = self.model(bti, btc, bkn)
-                                loss = self.criterion(
-                                    pred, btg[:, -1, :], self.params.quantiles
-                                )
-                            preds = make_predictions(pred, btg)
-                            write_log2tb(idx, preds, loss, pred_mode)
-                            return loss
-
                         # prediction with trainset
-                        loss_train = do_predict(idx, ti, tc, kn, tg, pred_mode="train")
+                        loss_train = self._predict(
+                            idx, ti, tc, kn, tg, pred_mode="train"
+                        )
                         self.loss_train = loss_train.item()
 
                         # prediction with testset
                         testset = dataset.create_testset()
-                        loss_valid = do_predict(
+                        loss_valid = self._predict(
                             idx,
                             testset.ti,
                             testset.tc,
