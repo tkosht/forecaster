@@ -13,26 +13,26 @@ Tsr = torch.Tensor
 def get_order(ti: Tsr) -> numpy.int32:
     m = ti.mean().item()
     n_digits = numpy.floor(numpy.log10(m)).astype(numpy.int32)
-    o = 10 ** (n_digits//2)
+    o = 10 ** (n_digits // 2)
     return o
 
 
 def make_curve_cyclic(ti: Tsr) -> Tsr:
     o = get_order(ti)
     # return torch.sin(25/o * ti) + 3 * torch.sin(5/o * ti) + 0.5 * torch.cos(1/o * ti)
-    return torch.sin(2/o * ti)
+    return 100 * torch.sin(2 / o * ti)
 
 
 def make_curve_trend(ti: Tsr) -> Tsr:
     o = get_order(ti)
-    return (1/o * ti ** 2 + 5/o * ti + 2)
+    return 1 / o * ti ** 2 + 5 / o * ti + 2
 
 
 @dataclass
 class DateTensors(object):
-    ti: Tsr = Tsr([])   # time index
-    tv: Tsr = None      # time variables
-    tc: Tsr = Tsr([])   # time constant
+    ti: Tsr = Tsr([])  # time index
+    tv: Tsr = None  # time variables
+    tc: Tsr = Tsr([])  # time constant
     kn: Tsr = Tsr([])
     tg: Tsr = Tsr([])
     device: torch.device = torch.device("cpu")
@@ -43,10 +43,17 @@ class DateTensors(object):
             if tsr is not None:
                 tsr.to(self.device)
 
+
 class DatesetToy(object):
     dct_curve: dict = dict(cyclic=make_curve_cyclic, trend=make_curve_trend)
 
-    def __init__(self, Dout: int, wsz: int=7, model_type: str="cyclic", device: torch.device=torch.device("cpu")):
+    def __init__(
+        self,
+        Dout: int,
+        wsz: int = 7,
+        model_type: str = "cyclic",
+        device: torch.device = torch.device("cpu"),
+    ):
         super().__init__()
         self.Dout = Dout
         self.wsz = wsz
@@ -66,7 +73,9 @@ class DatesetToy(object):
         """
         ti.shape = (N, W, Dout)
         """
-        self.date_series = DatasetDateSeries(start=s, end=e, wsz=self.wsz, to_onehot=True)    # wsz same as W
+        self.date_series = DatasetDateSeries(
+            start=s, end=e, wsz=self.wsz, to_onehot=True
+        )  # wsz same as W
 
         # ti window data to tensor
         ti = Tsr(self.date_series.ti_win)
@@ -82,20 +91,26 @@ class DatesetToy(object):
         tg = self.dct_curve[self.model_type](ti).repeat(1, 1, self.Dout)
 
         ti, tc, kn, tg = self.to_device(ti, tc, kn, tg)
-        trainset = DateTensors(ti=ti, tc=tc, kn=kn, tg=tg, device=self.device)       # ti/tc/kn.shape: (N, W, Dout), tg.shape = (N, 1, Dout)
+        trainset = DateTensors(
+            ti=ti, tc=tc, kn=kn, tg=tg, device=self.device
+        )  # ti/tc/kn.shape: (N, W, Dout), tg.shape = (N, 1, Dout)
         self.trainset = trainset
         return trainset
 
-    def to_device(self, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
+    def to_device(
+        self, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr
+    ) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
         device = self.device
         return ti.to(device), tc.to(device), kn.to(device), tg.to(device)
 
-    def create_testset(
-        self, by="2019-12-31"
-    ) -> DateTensors:
+    def create_testset(self, by="2019-12-31") -> DateTensors:
         nxt = self.date_series.next_date
         test_series = DatasetDateSeries(
-            start=nxt, end=by, wsz=self.date_series.wsz, wshift=self.date_series.wshift, to_onehot=True
+            start=nxt,
+            end=by,
+            wsz=self.date_series.wsz,
+            wshift=self.date_series.wshift,
+            to_onehot=True,
         )
         # ti window data to tensor
         ti = Tsr(test_series.ti_win)
@@ -112,7 +127,9 @@ class DatesetToy(object):
         tg = self.dct_curve[self.model_type](ti).repeat(1, 1, self.Dout)
 
         ti, tc, kn, tg = self.to_device(ti, tc, kn, tg)
-        testset = DateTensors(ti=ti, tc=tc, kn=kn, tg=tg, device=self.device)       # ti/tc/kn.shape: (N, W, Dout), tg.shape = (N, 1, Dout)
+        testset = DateTensors(
+            ti=ti, tc=tc, kn=kn, tg=tg, device=self.device
+        )  # ti/tc/kn.shape: (N, W, Dout), tg.shape = (N, 1, Dout)
         self.testset = testset
         return testset
 
