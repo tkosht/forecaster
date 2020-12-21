@@ -102,8 +102,7 @@ class Cyclic(M):
         n_dim = sum(dim_ins[0:])
         self.emb_encode = nn.Linear(n_dim, dim_emb)  # .double()
         self.emb_decode = nn.Linear(n_dim, dim_emb)  # .double()
-        S = dim_ins[1]  # S: seq length
-        max_len = max(16, S)
+        max_len = max(16, ws)
         self.pos = PositionalEncoding(d_model=dim_emb, max_len=max_len)
 
         # Transformers
@@ -116,17 +115,17 @@ class Cyclic(M):
         self.tr = nn.Transformer(**prm)  # .double()
 
         # linears
-        self.dc = nn.Linear(ws * dim_emb, n_quantiles)  # .double()
+        self.dc = nn.Linear(ws * dim_emb, ws * n_dim * n_quantiles)  # .double()
         self.ak = nn.Linear(ws * dim_emb, k * n_quantiles)  # .double()
         self.bk = nn.Linear(ws * dim_emb, k * n_quantiles)  # .double()
         self.wk = nn.Linear(ws * dim_emb, k)  # .double()
         self.ok = nn.Linear(ws * dim_emb, k)  # .double()
 
         # initialize weights
-        weight_interval = 0.1
+        weight_interval = 0.01
         nn.init.uniform_(self.emb_encode.weight, -weight_interval, weight_interval)
         nn.init.uniform_(self.emb_decode.weight, -weight_interval, weight_interval)
-        nn.init.kaiming_normal_(self.dc.weight)
+        nn.init.xavier_normal_(self.dc.weight)
         nn.init.kaiming_normal_(self.ak.weight)
         nn.init.kaiming_normal_(self.bk.weight)
         nn.init.xavier_normal_(self.wk.weight)
@@ -143,13 +142,18 @@ class Cyclic(M):
         ]:
             nn.init.zeros_(fc.bias)
 
+    def make_x(self, ti: Tsr, tc: Tsr, kn: Tsr):
+        pi = numpy.pi
+        _ti = ti % (2 * pi) / (2 * pi)
+        x = torch.cat([_ti, tc, kn], dim=-1)  # as input
+        return x
+
     def pretrain(self, ti: Tsr, tc: Tsr, kn: Tsr):
         # setup
-        # mask_rate = 0.15
-        mask_rate = 0.20
+        mask_rate = 0.15
 
         # concat input
-        x = torch.cat([ti, tc, kn], dim=-1)  # as input
+        x = self.make_x(ti, tc, kn)  # as input
         y = x.clone()  # as target
 
         # make mask
@@ -173,9 +177,10 @@ class Cyclic(M):
         emb_encode = self.pos(emb_encode)
 
         # - for y
-        # emb_decode = self.emb_decode(y) * numpy.sqrt(y.shape[-1])
-        emb_decode = self.emb_encode(y) * numpy.sqrt(y.shape[-1])
+        emb_decode = self.emb_decode(y) * numpy.sqrt(y.shape[-1])
+        # emb_decode = self.emb_encode(y) * numpy.sqrt(y.shape[-1])
         emb_decode = emb_decode.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
+        emb_decode = self.pos(emb_decode)
 
         # transform
         def reshape(tsr: Tsr) -> Tsr:
@@ -184,12 +189,17 @@ class Cyclic(M):
 
         encoded = reshape(self.tr(emb_encode, emb_decode))
         y = self.dc(encoded)
+        y = y.reshape(*x.shape, self.args.n_quantiles)
+        y = torch.sigmoid(y)
         return y
 
     def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
+        # setup const
+        pi = numpy.pi
+
         # embedding
         # - for X
-        x = torch.cat([ti, tc, kn], dim=-1)
+        x = self.make_x(ti, tc, kn)  # as input
         emb_encode = self.emb_encode(x) * numpy.sqrt(x.shape[-1])
         emb_encode = emb_encode.transpose(1, 0)  # (B, W, Demb) -> (W, B, Demb)
         emb_encode = self.pos(emb_encode)
@@ -204,24 +214,21 @@ class Cyclic(M):
         a = self.ak(z)
         b = self.bk(z)
 
-        pi = numpy.pi
-        w = torch.sigmoid(self.wk(z)) / (2 * pi)
-        o = torch.sigmoid(self.ok(z)) / (2 * pi)
-        # o = pi/2 + torch.sin(self.ok(z)) / (pi/2)      # map to (0, pi)
-        # w = self.wk(z)
-        # o = self.ok(z)
+        w = self.wk(z)
+        o = 2 * pi * torch.sigmoid(self.ok(z))
 
         # adjusting the shape
         k, q = self.args.k, self.args.n_quantiles
         kq = k * q
         t = ti[:, -1, :].repeat(1, kq).view(-1, k, q)
-        w = w.view(-1, self.args.k, 1).repeat(1, 1, 7).view(-1, k, q)
-        o = o.view(-1, self.args.k, 1).repeat(1, 1, 7).view(-1, k, q)
+        w = w.view(-1, k, 1).repeat(1, 1, q).view(-1, k, q)
+        o = o.view(-1, k, 1).repeat(1, 1, q).view(-1, k, q)
         a = a.view(-1, k, q)
         b = b.view(-1, k, q)
 
         # calculate theta (rad)
-        th = 2 * pi * (w * t + o)
+        # th = 2 * pi * (w * t + o)
+        th = w * t + o
         y = a * torch.cos(th) + b * torch.sin(th)
         y = y.sum(dim=1)  # sum_k
 
@@ -242,8 +249,7 @@ class Trend(M):
     ):
         super().__init__()  # after this call, to be enabled to access `self.args`
         self.emb_encode = nn.Linear(sum(dim_ins[0:]), dim_emb)  # .double()
-        S = dim_ins[1]  # S: seq length
-        max_len = max(16, S)
+        max_len = max(16, ws)
         self.pos = PositionalEncoding(d_model=dim_emb, max_len=max_len)
 
         # Transformers

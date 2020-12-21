@@ -81,7 +81,14 @@ class Trainer(object):
                 def closure():
                     self.optimizer.zero_grad()
                     y_pred = self.train_model(bti, btc, bkn)
-                    loss = self.criterion(y_pred, btg[:, -1, :], self.params.quantiles)
+                    if train_mode == "pretrain":
+                        x = self.model.make_x(bti, btc, bkn)
+                        y = x.unsqueeze(-1)
+                        loss = self.criterion(y_pred, y, self.params.quantiles)
+                    else:
+                        loss = self.criterion(
+                            y_pred, btg[:, -1, :], self.params.quantiles
+                        )
                     losses.append(loss.item())
                     assert len(losses) == n_steps + 1
 
@@ -207,7 +214,7 @@ def quantile_loss(
         err = tg - pred_y[..., idx].unsqueeze(-1)  # (B, 1)
         losses.append(torch.max((qtl - 1) * err, qtl * err).unsqueeze(-1))  # (B, 1, 1)
     losses = torch.cat(losses, dim=2)
-    loss = losses.sum(dim=(1, 2)).mean()
+    loss = losses.sum(dim=(-2, -1)).mean()
     if with_mse:
         loss += nn.MSELoss()(pred_y, tg.repeat(1, len(quantiles)))
     return loss
@@ -230,6 +237,11 @@ def get_args():
         type=str,
         choices=["cyclic", "trend", "recent", "full"],
         default="cyclic",
+    )
+    parser.add_argument(
+        "--max-epoch-pretrain",
+        type=int,
+        default=30 * 1000,
     )
     parser.add_argument(
         "--max-epoch",
@@ -262,7 +274,7 @@ if __name__ == "__main__":
     args = get_args()
 
     # setup device
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     print("device:", device)
 
     # create toy dataset
@@ -317,7 +329,7 @@ if __name__ == "__main__":
     trainer = Trainer(model, optimizer, criterion, params)
 
     # pretrain
-    trainer.do_pretrain(toydataset, epochs=args.max_epoch)
+    trainer.do_pretrain(toydataset, epochs=args.max_epoch_pretrain)
 
     # train
     trainer.do_train(toydataset, epochs=args.max_epoch)
