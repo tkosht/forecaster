@@ -19,8 +19,10 @@ def get_order(ti: Tsr) -> numpy.int32:
 
 def make_curve_cyclic(ti: Tsr) -> Tsr:
     o = get_order(ti)
-    # return torch.sin(25/o * ti) + 3 * torch.sin(5/o * ti) + 0.5 * torch.cos(1/o * ti)
-    return 100 * torch.sin(2 / o * ti)
+    return (
+        torch.sin(25 / o * ti) + 3 * torch.sin(5 / o * ti) + 0.5 * torch.cos(1 / o * ti)
+    )
+    # return 100 * torch.sin(2 / o * ti)
 
 
 def make_curve_trend(ti: Tsr) -> Tsr:

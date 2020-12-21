@@ -220,7 +220,9 @@ class Cyclic(M):
         # adjusting the shape
         k, q = self.args.k, self.args.n_quantiles
         kq = k * q
-        t = ti[:, -1, :].repeat(1, kq).view(-1, k, q)
+        dim_ti = self.args.dim_ins[0]
+        _ti = x[:, :, :dim_ti]
+        t = _ti[:, -1, :].repeat(1, kq).view(-1, k, q)
         w = w.view(-1, k, 1).repeat(1, 1, q).view(-1, k, q)
         o = o.view(-1, k, 1).repeat(1, 1, q).view(-1, k, q)
         a = a.view(-1, k, q)

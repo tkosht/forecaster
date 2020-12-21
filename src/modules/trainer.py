@@ -306,7 +306,7 @@ if __name__ == "__main__":
             ws=trainset.ti.shape[1],
             dim_emb=8,
             n_heads=4,
-            k=3,
+            k=5,
             n_layers=1,
             n_quantiles=len(criterion.__defaults__[0]),  # like len(quantiles)
         )

@@ -46,7 +46,7 @@ entry_points:
 
   resume:
     parameters:
-      max-epoch-pretrain: {type: int, default: 1000}
+      max-epoch-pretrain: {type: int, default: 5000}
       max-epoch: {type: int, default: 10000}
       log-interval: {type: int, default: 100}
       save-interval: {type: int, default: 2000}
