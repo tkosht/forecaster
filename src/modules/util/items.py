@@ -53,7 +53,7 @@ def _get(obj, key: str):
     return None
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     d = dict(
         first=dict(
             model="MLP",
@@ -70,10 +70,7 @@ if __name__ == '__main__':
             lr=1e-4,
             act="tanh",
         ),
-        common=dict(
-            loss="cross_entropy",
-            optimizer="Adam"
-        )
+        common=dict(loss="cross_entropy", optimizer="Adam"),
     )
 
     # test for accesibility

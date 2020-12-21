@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List
+
 import numpy
 import pandas
 import datetime
@@ -51,7 +51,7 @@ class CategorySeries(object):
     cols: list
     list_n_labels: list[int]
 
-    def __init__(self, df: pandas.DataFrame, wsz: int=7, wshift: int=1) -> None:
+    def __init__(self, df: pandas.DataFrame, wsz: int = 7, wshift: int = 1) -> None:
         super().__init__()
         self.df = df
         self.data = make_window(df, self.wsz, self.wshift)
@@ -61,13 +61,19 @@ class CategorySeries(object):
 
 class DatasetDateSeries(object):
     def __init__(
-        self, start: str="2016-01-01", end: str="2018-12-31", freq: str="D", wsz: int=7, wshift: int=1, to_onehot=True
+        self,
+        start: str = "2016-01-01",
+        end: str = "2018-12-31",
+        freq: str = "D",
+        wsz: int = 7,
+        wshift: int = 1,
+        to_onehot=True,
     ) -> None:
-        self.start = start          # start of date range
-        self.end = end              # end of date range
-        self.freq = freq            # date frequancy, default "D" day unit
-        self.wsz = wsz              # window size
-        self.wshift = wshift        # size of shifting window
+        self.start = start  # start of date range
+        self.end = end  # end of date range
+        self.freq = freq  # date frequancy, default "D" day unit
+        self.wsz = wsz  # window size
+        self.wshift = wshift  # size of shifting window
         self.to_onehot = to_onehot  # to encode to onehot or not
 
         # variable to be initialized
@@ -78,7 +84,10 @@ class DatasetDateSeries(object):
         self._make_datedata()._make_window()
 
     def _make_datedata(
-        self, start: str="2016-01-01", end: str="2018-12-31", freq: str="D",
+        self,
+        start: str = "2016-01-01",
+        end: str = "2018-12-31",
+        freq: str = "D",
     ) -> DatasetDateSeries:
         df = pandas.DataFrame([])
         index_date = pandas.date_range(start, end, freq=freq)
@@ -117,6 +126,6 @@ class DatasetDateSeries(object):
         return next_date(self.df.date_index)
 
     @cached_property
-    def next_index(self, by: str="2019-12-31") -> pandas.Series:
+    def next_index(self, by: str = "2019-12-31") -> pandas.Series:
         s = next_date(self.df.date_index)
         return pandas.date_range(s, by, freq=self.freq)
