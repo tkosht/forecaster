@@ -284,7 +284,8 @@ if __name__ == "__main__":
     trainset = toydataset.create_trainset()
 
     # setup criterion
-    criterionner = dict(cyclic=quantile_loss, trend=quantile_loss_with_mse)
+    # criterionner = dict(cyclic=quantile_loss, trend=quantile_loss_with_mse)
+    criterionner = dict(cyclic=quantile_loss, trend=quantile_loss)
     criterion = criterionner[args.model]
 
     if args.resume:
