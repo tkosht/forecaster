@@ -9,6 +9,9 @@ from torch.utils.tensorboard import SummaryWriter
 from ..util.items import Items
 from ..dataset.batcher import BatchMaker
 
+import mlflow
+import pickle
+
 
 # Tsr = torch.DoubleTensor
 Tsr = torch.Tensor
@@ -72,11 +75,13 @@ class PositionalEncoding(nn.Module):
 
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-numpy.log(10000.0) / d_model))
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-numpy.log(10000.0) / d_model)
+        )
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)        # (W, D) -> (1, W, D) -> (W, 1, D)
-        self.register_buffer('pe', pe)
+        pe = pe.unsqueeze(0).transpose(0, 1)  # (W, D) -> (1, W, D) -> (W, 1, D)
+        self.register_buffer("pe", pe)
 
     def forward(self, x: Tsr) -> Tsr:
         """
@@ -86,8 +91,8 @@ class PositionalEncoding(nn.Module):
             W: window size
             D: dim
         """
-        x = x + self.pe[:x.size(0), :]
-        return self.dropout(x)      # (W, B, D)
+        x = x + self.pe[: x.size(0), :]
+        return self.dropout(x)  # (W, B, D)
 
 
 class Cyclic(M):
@@ -96,18 +101,16 @@ class Cyclic(M):
         dim_ins: tuple,
         dim_out: int,
         ws: int,
-        dim_emb=4*2,    # dim for embedding
+        dim_emb=4 * 2,  # dim for embedding
         n_heads=4,
-        k=5,            # the numbers of sin/cos curves
-        n_layers=1,     # layers of multi-heads
+        k=5,  # the numbers of sin/cos curves
+        n_layers=1,  # layers of multi-heads
         n_quantiles=7,
     ):
         super().__init__()  # after this call, to be enabled to access `self.args`
         n_dim = sum(dim_ins[1:])
-        self.emb = nn.Linear(n_dim, dim_emb)    #.double()
-        # TODO: implement using nn.Embedding
-        ## nn.Embedding
-        S = dim_ins[1]      # S: seq length
+        self.emb = nn.Linear(n_dim, dim_emb)  # .double()
+        S = dim_ins[1]  # S: seq length
         max_len = max(16, S)
         self.pos = PositionalEncoding(d_model=dim_emb, max_len=max_len)
 
@@ -118,13 +121,13 @@ class Cyclic(M):
             num_encoder_layers=n_layers,
             num_decoder_layers=n_layers,
         )
-        self.tr = nn.Transformer(**prm)    # .double()
+        self.tr = nn.Transformer(**prm)  # .double()
 
         # linears
         self.ak = nn.Linear(ws * dim_emb, k * n_quantiles)  # .double()
         self.bk = nn.Linear(ws * dim_emb, k * n_quantiles)  # .double()
-        self.wk = nn.Linear(ws * dim_emb, k)                # .double()
-        self.ok = nn.Linear(ws * dim_emb, k)                # .double()
+        self.wk = nn.Linear(ws * dim_emb, k)  # .double()
+        self.ok = nn.Linear(ws * dim_emb, k)  # .double()
 
         # initialize weights
         weight_interval = 0.1
@@ -137,9 +140,7 @@ class Cyclic(M):
         for fc in [self.emb, self.ak, self.bk, self.wk, self.ok]:
             nn.init.zeros_(fc.bias)
 
-    def forward(
-        self, ti: Tsr, tc: Tsr, kn: Tsr
-    ):
+    def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
         # embedding
         x = torch.cat([tc, kn], dim=-1)
         emb = self.emb(x) * numpy.sqrt(x.shape[-1])
@@ -157,11 +158,11 @@ class Cyclic(M):
         b = self.bk(z)
 
         pi = numpy.pi
-        # w = torch.sigmoid(self.wk(z)) / (2 * pi)
-        # o = torch.sigmoid(self.ok(z)) / pi
+        w = torch.sigmoid(self.wk(z)) / (2 * pi)
+        o = torch.sigmoid(self.ok(z)) / (2 * pi)
         # o = pi/2 + torch.sin(self.ok(z)) / (pi/2)      # map to (0, pi)
-        w = self.wk(z)
-        o = self.ok(z)
+        # w = self.wk(z)
+        # o = self.ok(z)
 
         # adjusting the shape
         k, q = self.args.k, self.args.n_quantiles
@@ -173,9 +174,9 @@ class Cyclic(M):
         b = b.view(-1, k, q)
 
         # calculate theta (rad)
-        th = 2 * pi * w * t + o
+        th = 2 * pi * (w * t + o)
         y = a * torch.cos(th) + b * torch.sin(th)
-        y = y.sum(dim=1)
+        y = y.sum(dim=1)  # sum_k
 
         return y
 
@@ -193,9 +194,8 @@ class Trend(M):
         n_quantiles=7,
     ):
         super().__init__()  # after this call, to be enabled to access `self.args`
-        self.emb = nn.Linear(sum(dim_ins[0:]), dim_emb)     # .double()
-        # TODO: implement positional encoding
-        S = dim_ins[1]      # S: seq length
+        self.emb = nn.Linear(sum(dim_ins[0:]), dim_emb)  # .double()
+        S = dim_ins[1]  # S: seq length
         max_len = max(16, S)
         self.pos = PositionalEncoding(d_model=dim_emb, max_len=max_len)
 
@@ -206,14 +206,14 @@ class Trend(M):
             num_encoder_layers=n_layers,
             num_decoder_layers=n_layers,
         )
-        self.tra = nn.Transformer(**prm)    # .double()
-        self.trb = nn.Transformer(**prm)    # .double()
-        self.tro = nn.Transformer(**prm)    # .double()
+        self.tra = nn.Transformer(**prm)  # .double()
+        self.trb = nn.Transformer(**prm)  # .double()
+        self.tro = nn.Transformer(**prm)  # .double()
 
         # linears
-        self.ak = nn.Linear(ws * dim_emb, k)            # .double()
+        self.ak = nn.Linear(ws * dim_emb, k)  # .double()
         self.bk = nn.Linear(ws * dim_emb, n_quantiles)  # .double()
-        self.ok = nn.Linear(ws * dim_emb, k)            # .double()
+        self.ok = nn.Linear(ws * dim_emb, k)  # .double()
         self.relu = nn.ReLU()
 
         # initialize weights
@@ -221,9 +221,7 @@ class Trend(M):
         nn.init.kaiming_normal_(self.bk.weight)
         nn.init.xavier_normal_(self.ok.weight)
 
-    def forward(
-        self, ti: Tsr, tc: Tsr, kn: Tsr
-    ):
+    def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
         # embedding
         x = torch.cat([ti, tc, kn], dim=-1)
         emb = self.emb(x) * numpy.sqrt(x.shape[-1])
@@ -277,7 +275,12 @@ class Trainer(object):
         pass
 
     def do_train(self, dataset, epochs: int = 500):
-        ti, tc, kn, tg = dataset.trainset.ti, dataset.trainset.tc, dataset.trainset.kn, dataset.trainset.tg
+        ti, tc, kn, tg = (
+            dataset.trainset.ti,
+            dataset.trainset.tc,
+            dataset.trainset.kn,
+            dataset.trainset.tg,
+        )
         batch = BatchMaker(bsz=self.params.batch_size)
 
         # train loop
@@ -303,14 +306,12 @@ class Trainer(object):
 
                     self.loss_train = loss.item()  # keep latest loss
                     k = self.params.log_interval
-                    l = loss.item() if n_steps < k else numpy.mean(losses[-k :])
-                    self.writer.add_scalar(
-                        f"loss/step/train", l, n_steps
-                    )
+                    l = loss.item() if n_steps < k else numpy.mean(losses[-k:])
+                    self.writer.add_scalar(f"loss/step/train", l, n_steps)
 
                     # logging progress
                     if idx % self.params.log_interval == 0 and idx > 0 and bdx == 0:
-                        mean_loss = numpy.mean(losses[-k :])
+                        mean_loss = numpy.mean(losses[-k:])
                         print(f"loss[{idx:03d}][{bdx:03d}][{n_steps:05d}]", mean_loss)
 
                         def make_predictions(y_pred, tg) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
@@ -322,7 +323,6 @@ class Trainer(object):
                             p90 = self.get_quantile(pred, alpha=0.9)
                             t = tg[:, -1, :][..., 0]
                             return p, p10, p90, t
-
 
                         def write_log2tb(idx, preds, loss, pred_type="train") -> None:
                             for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
@@ -336,8 +336,15 @@ class Trainer(object):
                                 f"loss/interval/{pred_type}", loss.item(), idx
                             )
 
-                        def do_predict(idx, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr, pred_mode="train") -> Tsr:
-                            bti, btc, bkn, btg = next(batch(ti)), next(batch(tc)), next(batch(kn)), next(batch(tg))
+                        def do_predict(
+                            idx, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr, pred_mode="train"
+                        ) -> Tsr:
+                            bti, btc, bkn, btg = (
+                                next(batch(ti)),
+                                next(batch(tc)),
+                                next(batch(kn)),
+                                next(batch(tg)),
+                            )
                             with torch.no_grad():
                                 pred = self.model(bti, btc, bkn)
                                 loss = self.criterion(
@@ -353,13 +360,25 @@ class Trainer(object):
 
                         # prediction with testset
                         testset = dataset.create_testset()
-                        loss_valid = do_predict(idx, testset.ti, testset.tc, testset.kn, testset.tg, pred_mode="valid")
+                        loss_valid = do_predict(
+                            idx,
+                            testset.ti,
+                            testset.tc,
+                            testset.kn,
+                            testset.tg,
+                            pred_mode="valid",
+                        )
                         self.loss_valid = loss_valid.item()
 
                     loss.backward()
                     return loss
 
                 self.optimizer.step(closure)
+
+            if idx % self.params.save_interval == 0 and idx > 0:
+                mlflow.pytorch.log_model(
+                    self.model, f"models.{idx:05d}", pickle_module=pickle
+                )
 
 
 def quantile_loss(
@@ -408,6 +427,16 @@ def get_args():
         type=int,
         default=100,
     )
+    parser.add_argument(
+        "--save-interval",
+        type=int,
+        default=10000,
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=False,
+    )
     args = parser.parse_args()
     return args
 
@@ -418,7 +447,7 @@ if __name__ == "__main__":
     args = get_args()
 
     # setup device
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("device:", device)
 
     # create toy dataset
@@ -430,19 +459,31 @@ if __name__ == "__main__":
     criterionner = dict(cyclic=quantile_loss, trend=quantile_loss_with_mse)
     criterion = criterionner[args.model]
 
-    # setup model
-    dims = (trainset.ti.shape[-1], trainset.tc.shape[-1], trainset.kn.shape[-1])
-    modeller = dict(cyclic=Cyclic, trend=Trend)
-    model = modeller[args.model](
-        dim_ins=dims,
-        dim_out=trainset.tg.shape[-1],
-        ws=trainset.ti.shape[1],
-        dim_emb=8,
-        n_heads=4,
-        k=3,
-        n_layers=1,
-        n_quantiles=len(criterion.__defaults__[0]), # like len(quantiles)
-    ).to(device)
+    if args.resume:
+        from mlflow.tracking import MlflowClient
+
+        client = MlflowClient()
+        (rm,) = client.list_registered_models()
+        lm = dict(rm)["latest_versions"][0]
+        uri = f"models:/latest_model/{lm.version}"
+        print(f"loading the latest model ... [{uri}]")
+        model = mlflow.pytorch.load_model(uri)
+        print("loading done.")
+    else:
+        # setup model
+        dims = (trainset.ti.shape[-1], trainset.tc.shape[-1], trainset.kn.shape[-1])
+        modeller = dict(cyclic=Cyclic, trend=Trend)
+        model = modeller[args.model](
+            dim_ins=dims,
+            dim_out=trainset.tg.shape[-1],
+            ws=trainset.ti.shape[1],
+            dim_emb=8,
+            n_heads=4,
+            k=3,
+            n_layers=1,
+            n_quantiles=len(criterion.__defaults__[0]),  # like len(quantiles)
+        )
+    model.to(device)
     print("model.args:", model.args)
 
     # setup optimizer and criterion
@@ -460,6 +501,7 @@ if __name__ == "__main__":
             batch_size=B,
             quantiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95],
             log_interval=args.log_interval,
+            save_interval=args.save_interval,
         )
     )
     trainer = Trainer(model, optimizer, criterion, writer, params)
@@ -484,3 +526,7 @@ if __name__ == "__main__":
         },
     )
     writer.close()
+
+    mlflow.pytorch.log_model(
+        model, "models", registered_model_name="latest_model", pickle_module=pickle
+    )

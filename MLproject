@@ -3,9 +3,49 @@ name: pytorch_tutorial
 entry_points:
   main:
     parameters:
-      epoch: {type: int, default: 5}
-      log-interval: {type: int, default: 10}
+      model: {type: str, default: "cyclic"}
+      max-epoch: {type: int, default: 10000}
+      log-interval: {type: int, default: 100}
+      save-interval: {type: int, default: 2000}
     command: |
-          python main.py \
-            --epoch={epoch} \
-            --log-interval={log-interval}
+          python -m src.modules.model.model \
+            --model={model} \
+            --max-epoch={max-epoch} \
+            --log-interval={log-interval} \
+            --save-interval={save-interval}
+  cyclic:
+    parameters:
+      model: {type: str, default: "cyclic"}
+      max-epoch: {type: int, default: 10000}
+      log-interval: {type: int, default: 100}
+      save-interval: {type: int, default: 2000}
+    command: |
+          python -m src.modules.model.model \
+            --model={model} \
+            --max-epoch={max-epoch} \
+            --log-interval={log-interval} \
+            --save-interval={save-interval}
+  trend:
+    parameters:
+      model: {type: str, default: "trend"}
+      max-epoch: {type: int, default: 10000}
+      log-interval: {type: int, default: 100}
+      save-interval: {type: int, default: 2000}
+    command: |
+          python -m src.modules.model.model \
+            --model={model} \
+            --max-epoch={max-epoch} \
+            --log-interval={log-interval} \
+            --save-interval={save-interval}
+
+  resume:
+    parameters:
+      max-epoch: {type: int, default: 10000}
+      log-interval: {type: int, default: 100}
+      save-interval: {type: int, default: 2000}
+    command: |
+          python -m src.modules.model.model \
+            --resume \
+            --max-epoch={max-epoch} \
+            --log-interval={log-interval} \
+            --save-interval={save-interval}
