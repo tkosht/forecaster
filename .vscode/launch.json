@@ -34,7 +34,8 @@
             "request": "launch",
             "module": "src.modules.trainer",
             "args": [
-                "--model=trend"
+                "--model=trend",
+                "--max-epoch-pretrain=0",
             ],
             "justMyCode": false
         },

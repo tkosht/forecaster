@@ -32,8 +32,8 @@ entry_points:
   trend:
     parameters:
       model: {type: str, default: "trend"}
-      max-epoch-pretrain: {type: int, default: 10000}
-      max-epoch: {type: int, default: 20000}
+      max-epoch-pretrain: {type: int, default: 2000}
+      max-epoch: {type: int, default: 1000}
       log-interval: {type: int, default: 100}
       save-interval: {type: int, default: 2000}
     command: |

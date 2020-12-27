@@ -216,7 +216,8 @@ def quantile_loss(
     losses = torch.cat(losses, dim=2)
     loss = losses.sum(dim=(-2, -1)).mean()
     if with_mse:
-        loss += nn.MSELoss()(pred_y, tg.repeat(1, len(quantiles)))
+        ones = [1] * (len(tg.shape) - 1)
+        loss += nn.MSELoss()(pred_y, tg.repeat(*ones, len(quantiles)))
     return loss
 
 
@@ -241,7 +242,7 @@ def get_args():
     parser.add_argument(
         "--max-epoch-pretrain",
         type=int,
-        default=30 * 1000,
+        default=300,
     )
     parser.add_argument(
         "--max-epoch",

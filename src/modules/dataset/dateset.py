@@ -1,33 +1,34 @@
 from __future__ import annotations
 import numpy
+import pandas
 import torch
 from typing import Tuple
 from dataclasses import dataclass
 from .dateseries import DatasetDateSeries
 
 
-# Tsr = torch.DoubleTensor
-Tsr = torch.Tensor
+Tsr = torch.DoubleTensor
+# Tsr = torch.Tensor
 
 
 def get_order(ti: Tsr) -> numpy.int32:
-    m = ti.mean().item()
-    n_digits = numpy.floor(numpy.log10(m)).astype(numpy.int32)
-    o = 10 ** (n_digits // 2)
+    ti_base = pandas.date_range("2010-1-1", "2010-1-2")[0]
+    ti_base = ti_base.to_numpy().astype(numpy.int64)
+    n_digits = numpy.int(numpy.floor(numpy.log10(ti_base)))
+    o = 10 ** n_digits
     return o
 
 
 def make_curve_cyclic(ti: Tsr) -> Tsr:
     o = get_order(ti)
-    return (
-        torch.sin(25 / o * ti) + 3 * torch.sin(5 / o * ti) + 0.5 * torch.cos(1 / o * ti)
-    )
-    # return 100 * torch.sin(2 / o * ti)
+    _ti = ti / o / 10  # _ti scales to (0, 1)
+    return torch.sin(25 * _ti) + 3 * torch.sin(5 * _ti) + 0.5 * torch.cos(1 * _ti)
 
 
 def make_curve_trend(ti: Tsr) -> Tsr:
     o = get_order(ti)
-    return 1 / o * ti ** 2 + 5 / o * ti + 2
+    _ti = ti / o / 10  # _ti scales to (0, 1)
+    return 7 * (1 * _ti) ** 2 + 5 * _ti + 2
 
 
 @dataclass
