@@ -5,12 +5,15 @@ import torch
 import torch.nn as nn
 from ..util.items import Items
 from ..dataset.dateset import Tsr
+from ..loss import loss_quantile, loss_mse
 
 # Tsr = torch.DoubleTensor
 # Tsr = torch.Tensor
 
 
 class ModelBase(nn.Module):
+    quantiles = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+
     def __init__(
         self,
         dim_ins: tuple,  # dims of ti, tc, kn
@@ -20,7 +23,6 @@ class ModelBase(nn.Module):
         n_heads: int,  # the number of attention heads in transformer
         k: int,  # the numbers of curves
         n_layers: int,  # layers of multi-heads
-        n_quantiles: int,  # the number of quantiles
     ):
         super().__init__()
         self.set_params()
@@ -31,7 +33,8 @@ class ModelBase(nn.Module):
         ws = self.args.ws
         n_heads = self.args.n_heads
         n_layers = self.args.n_layers
-        n_quantiles = self.args.n_quantiles
+
+        self.n_quantiles = len(self.quantiles)  # the number of quantiles
 
         # embedder
         n_dim = sum(dim_ins[0:])
@@ -50,7 +53,7 @@ class ModelBase(nn.Module):
         self.tr = nn.Transformer(**prm)  # .double()
 
         # linears
-        self.dc = nn.Linear(ws * dim_emb, ws * n_dim * n_quantiles)  # .double()
+        self.dc = nn.Linear(ws * dim_emb, ws * n_dim * self.n_quantiles)  # .double()
 
         # to double
         self.emb_encode = self.emb_encode.double()
@@ -125,7 +128,7 @@ class ModelBase(nn.Module):
 
         encoded = reshape(self.tr(emb_encode, emb_decode))
         p = self.dc(encoded)
-        p = p.reshape(*x.shape, self.args.n_quantiles)
+        p = p.reshape(*x.shape, self.n_quantiles)
         p = torch.sigmoid(p)
 
         return p
@@ -134,6 +137,25 @@ class ModelBase(nn.Module):
         raise NotImplementedError(type(self))
 
     def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
+        raise NotImplementedError(type(self))
+
+    def loss_pretrain(self, ti: Tsr, tc: Tsr, kn: Tsr) -> Tsr:
+        x = self.make_x(ti, tc, kn)
+        y = x.unsqueeze(-1)
+        p = self.pretrain(ti, tc, kn)  # (B, W, D, k)
+        loss = self.calc_loss_pretrain(p, y)
+        return loss
+
+    def calc_loss_pretrain(self, pred_y: Tsr, tg: Tsr) -> Tsr:
+        loss = loss_quantile(pred_y, tg)
+        return loss
+
+    def loss_train(self, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr) -> Tsr:
+        p = self(ti, tc, kn)  # (B, W, D, k)
+        loss = self.calc_loss(p, tg)
+        return loss
+
+    def calc_loss(self, pred_y: Tsr, tg: Tsr) -> Tsr:
         raise NotImplementedError(type(self))
 
 
@@ -216,7 +238,6 @@ class Cyclic(ModelBase):
         n_heads=4,
         k=5,  # the numbers of sin/cos curves
         n_layers=1,  # layers of multi-heads
-        n_quantiles=7,
     ):
         super().__init__(
             dim_ins,
@@ -226,13 +247,11 @@ class Cyclic(ModelBase):
             n_heads,
             k,
             n_layers,
-            n_quantiles,
         )  # after this call, to be enabled to access `self.args`
 
         # linears
-        # self.dc = nn.Linear(ws * dim_emb, ws * n_dim * n_quantiles)  # .double()
-        self.ak = nn.Linear(ws * dim_emb, k * n_quantiles).double()
-        self.bk = nn.Linear(ws * dim_emb, k * n_quantiles).double()
+        self.ak = nn.Linear(ws * dim_emb, k * self.n_quantiles).double()
+        self.bk = nn.Linear(ws * dim_emb, k * self.n_quantiles).double()
         self.wk = nn.Linear(ws * dim_emb, k).double()
         self.ok = nn.Linear(ws * dim_emb, k).double()
 
@@ -277,7 +296,7 @@ class Cyclic(ModelBase):
         o = 2 * pi * torch.sigmoid(self.ok(z))
 
         # adjusting the shape
-        k, q = self.args.k, self.args.n_quantiles
+        k, q = self.args.k, self.n_quantiles
         kq = k * q
         dim_ti = self.args.dim_ins[0]
         _ti = x[:, :, :dim_ti]
@@ -294,6 +313,11 @@ class Cyclic(ModelBase):
 
         return y
 
+    def calc_loss(self, pred_y: Tsr, tg: Tsr) -> Tsr:
+        y = tg[:, -1, :]
+        loss = loss_quantile(pred_y, y)
+        return loss
+
 
 class Trend(ModelBase):
     def __init__(
@@ -305,7 +329,6 @@ class Trend(ModelBase):
         n_heads=3,
         k=3,
         n_layers=1,
-        n_quantiles=7,
     ):
         super().__init__(
             dim_ins,
@@ -315,12 +338,11 @@ class Trend(ModelBase):
             n_heads,
             k,
             n_layers,
-            n_quantiles,
         )  # after this call, to be enabled to access `self.args`
 
         # linears
         self.ak = nn.Linear(ws * dim_emb, k).double()
-        self.bk = nn.Linear(ws * dim_emb, n_quantiles).double()
+        self.bk = nn.Linear(ws * dim_emb, self.n_quantiles).double()
         self.ok = nn.Linear(ws * dim_emb, k).double()
 
         # activation
@@ -355,7 +377,7 @@ class Trend(ModelBase):
         o = torch.sigmoid(self.ok(h))  # almost ti in (0, 1), by 2200-1-1
 
         # adjusting the shape
-        k, q = self.args.k, self.args.n_quantiles
+        k, q = self.args.k, self.n_quantiles
         kq = k * q
         dim_ti = self.args.dim_ins[0]
         _ti = x[:, :, :dim_ti]
@@ -368,3 +390,8 @@ class Trend(ModelBase):
         y = a * self.relu(t - o) + b
         y = y.sum(dim=1)  # ¥sum_k y_{b, k, q}
         return y
+
+    def calc_loss(self, pred_y: Tsr, tg: Tsr) -> Tsr:
+        y = tg[:, -1, :]
+        loss = loss_mse(pred_y, y)
+        return loss

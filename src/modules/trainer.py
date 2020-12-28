@@ -1,7 +1,6 @@
 import datetime
 import numpy
 import torch
-import torch.nn as nn
 import torch.optim as optim
 
 import mlflow
@@ -11,15 +10,13 @@ from typing import Tuple
 
 from .util.items import Items
 from .dataset.batcher import BatchMaker
-
-from .model.model import Tsr
+from .dataset.dateset import Tsr
 
 
 class Trainer(object):
-    def __init__(self, model, optimizer, criterion, params: Items):
+    def __init__(self, model, optimizer, params: Items):
         self.model = model
         self.optimizer = optimizer
-        self.criterion = criterion
         self.params = params
         self.loss_train = None
         self.loss_valid = None
@@ -80,15 +77,10 @@ class Trainer(object):
 
                 def closure():
                     self.optimizer.zero_grad()
-                    y_pred = self.train_model(bti, btc, bkn)
                     if train_mode == "pretrain":
-                        x = self.model.make_x(bti, btc, bkn)
-                        y = x.unsqueeze(-1)
-                        loss = self.criterion(y_pred, y, self.params.quantiles)
+                        loss = self.model.loss_pretrain(bti, btc, bkn)
                     else:
-                        loss = self.criterion(
-                            y_pred, btg[:, -1, :], self.params.quantiles
-                        )
+                        loss = self.model.loss_train(bti, btc, bkn, btg)
                     losses.append(loss.item())
                     assert len(losses) == n_steps + 1
 
@@ -147,7 +139,7 @@ class Trainer(object):
         )
         with torch.no_grad():
             pred = self.model(bti, btc, bkn)
-            loss = self.criterion(pred, btg[:, -1, :], self.params.quantiles)
+            loss = self.model.calc_loss(pred, btg)
         preds = self._make_predictions(pred, btg)
         self._write_log2tb(idx, preds, loss, pred_mode)
         return loss
@@ -183,7 +175,6 @@ class Trainer(object):
             model=args.model,
             max_epoch=args.max_epoch,
             optimizer=str(self.optimizer),
-            criterion=str(self.criterion),
         )
         self.writer.add_hparams(
             hparams,
@@ -200,33 +191,6 @@ class Trainer(object):
             registered_model_name="latest_model",
             pickle_module=pickle,
         )
-
-
-def quantile_loss(
-    pred_y: Tsr,
-    tg: Tsr,
-    quantiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95],
-    with_mse=False,
-) -> Tsr:
-
-    losses = []
-    for idx, qtl in enumerate(quantiles):
-        err = tg - pred_y[..., idx].unsqueeze(-1)  # (B, 1)
-        losses.append(torch.max((qtl - 1) * err, qtl * err).unsqueeze(-1))  # (B, 1, 1)
-    losses = torch.cat(losses, dim=2)
-    loss = losses.sum(dim=(-2, -1)).mean()
-    if with_mse:
-        ones = [1] * (len(tg.shape) - 1)
-        loss += nn.MSELoss()(pred_y, tg.repeat(*ones, len(quantiles)))
-    return loss
-
-
-def quantile_loss_with_mse(
-    pred_y: Tsr,
-    tg: Tsr,
-    quantiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95],
-) -> Tsr:
-    return quantile_loss(pred_y, tg, quantiles, with_mse=True)
 
 
 def get_args():
@@ -283,11 +247,6 @@ if __name__ == "__main__":
     toydataset = DatesetToy(Dout, W, args.model, device=device)
     trainset = toydataset.create_trainset()
 
-    # setup criterion
-    # criterionner = dict(cyclic=quantile_loss, trend=quantile_loss_with_mse)
-    criterionner = dict(cyclic=quantile_loss, trend=quantile_loss)
-    criterion = criterionner[args.model]
-
     if args.resume:
         from mlflow.tracking import MlflowClient
 
@@ -310,12 +269,11 @@ if __name__ == "__main__":
             n_heads=4,
             k=5,
             n_layers=1,
-            n_quantiles=len(criterion.__defaults__[0]),  # like len(quantiles)
         )
     model.to(device)
     print("model.args:", model.args)
 
-    # setup optimizer and criterion
+    # setup optimizer
     # optimizer = optim.LBFGS(model.parameters(), lr=0.8)     # Newton
     # optimizer = optim.SGD(model.parameters(), lr=0.001)
     optimizer = optim.Adam(model.parameters(), lr=0.01)
@@ -328,7 +286,7 @@ if __name__ == "__main__":
             save_interval=args.save_interval,
         )
     )
-    trainer = Trainer(model, optimizer, criterion, params)
+    trainer = Trainer(model, optimizer, params)
 
     # pretrain
     trainer.do_pretrain(toydataset, epochs=args.max_epoch_pretrain)

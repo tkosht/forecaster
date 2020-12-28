@@ -11,24 +11,35 @@ Tsr = torch.DoubleTensor
 # Tsr = torch.Tensor
 
 
-def get_order(ti: Tsr) -> numpy.int32:
+def get_basedate() -> numpy.int64:
     ti_base = pandas.date_range("2010-1-1", "2010-1-2")[0]
     ti_base = ti_base.to_numpy().astype(numpy.int64)
+    return ti_base
+
+
+def get_order(ti: Tsr) -> numpy.int32:
+    ti_base = get_basedate()
     n_digits = numpy.int(numpy.floor(numpy.log10(ti_base)))
     o = 10 ** n_digits
     return o
 
 
 def make_curve_cyclic(ti: Tsr) -> Tsr:
-    o = get_order(ti)
-    _ti = ti / o / 10  # _ti scales to (0, 1)
-    return torch.sin(25 * _ti) + 3 * torch.sin(5 * _ti) + 0.5 * torch.cos(1 * _ti)
+    b = get_basedate()
+    _ti = ti - b
+    o = get_order(_ti)
+    _ti = _ti / (o // 1000) % numpy.pi  # _ti scales to (0, pi)
+    curve = torch.sin(25 * _ti) + 3 * torch.sin(5 * _ti) + 0.5 * torch.cos(1 * _ti)
+    return curve
 
 
 def make_curve_trend(ti: Tsr) -> Tsr:
-    o = get_order(ti)
-    _ti = ti / o / 10  # _ti scales to (0, 1)
-    return 7 * (1 * _ti) ** 2 + 5 * _ti + 2
+    b = get_basedate()
+    _ti = ti - b
+    o = get_order(_ti)
+    _ti = _ti / o  # _ti scales to (0, 1)
+    curve = 7 * (2 * _ti) ** 2 + 1000 * _ti + 2
+    return curve
 
 
 @dataclass
