@@ -39,6 +39,7 @@ def make_curve_trend(ti: Tsr) -> Tsr:
     o = get_order(_ti)
     _ti = _ti / o  # _ti scales to (0, 1)
     curve = 7 * (2 * _ti) ** 2 + 1000 * _ti + 2
+    curve += 3 * make_curve_cyclic(ti)
     return curve
 
 

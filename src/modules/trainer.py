@@ -40,10 +40,12 @@ class Trainer(object):
     def do_pretrain(self, dataset, epochs: int = 500):
         self.train_model = self.model.pretrain
         self._do_train(dataset, epochs)
+        self._save_model(model_title=f"pretrained_model_{self.model.name}")
 
     def do_train(self, dataset, epochs: int = 500):
         self.train_model = self.model
         self._do_train(dataset, epochs)
+        self._save_model(model_title="latest_model")
 
     def _get_train_mode(self):
         mode = "train" if self.train_model == self.model else "pretrain"
@@ -70,17 +72,25 @@ class Trainer(object):
             _ti, _tc, _kn, _tg = ti[shuffle], tc[shuffle], kn[shuffle], tg[shuffle]
 
             # # batch loop
-            for bdx, (bti, btc, bkn, btg) in enumerate(
-                zip(batch(_ti), batch(_tc), batch(_kn), batch(_tg))
+            for bdx, bch in enumerate(
+                zip(
+                    batch(ti),
+                    batch(_ti),
+                    batch(_tc),
+                    batch(_kn),
+                    batch(_tg),
+                )
             ):
+                (bti_org, bti, btc, bkn, btg) = bch
                 n_steps += 1
 
                 def closure():
+                    model_params = dict(batch=bch)
                     self.optimizer.zero_grad()
                     if train_mode == "pretrain":
-                        loss = self.model.loss_pretrain(bti, btc, bkn)
+                        loss = self.model.loss_pretrain(bti, btc, bkn, **model_params)
                     else:
-                        loss = self.model.loss_train(bti, btc, bkn, btg)
+                        loss = self.model.loss_train(bti, btc, bkn, btg, **model_params)
                     losses.append(loss.item())
                     assert len(losses) == n_steps + 1
 
@@ -185,10 +195,11 @@ class Trainer(object):
         )
         self.writer.close()
 
+    def _save_model(self, model_title="latest_model"):
         mlflow.pytorch.log_model(
             self.model,
             "models",
-            registered_model_name="latest_model",
+            registered_model_name=model_title,
             pickle_module=pickle,
         )
 
@@ -248,15 +259,28 @@ if __name__ == "__main__":
     trainset = toydataset.create_trainset()
 
     if args.resume:
-        from mlflow.tracking import MlflowClient
 
-        client = MlflowClient()
-        (rm,) = client.list_registered_models()
-        lm = dict(rm)["latest_versions"][0]
-        uri = f"models:/latest_model/{lm.version}"
+        def search_latest_model_info():
+            from mlflow.tracking import MlflowClient
+
+            mlf_client = MlflowClient()
+            for m in mlf_client.list_registered_models():
+                if m.name == "latest_model":
+                    return m
+            return None
+
+        reg_info = search_latest_model_info()
+        assert reg_info is not None
+        info_latest = dict(reg_info)["latest_versions"][0]
+        uri = f"models:/latest_model/{info_latest.version}"
         print(f"loading the latest model ... [{uri}]")
         model = mlflow.pytorch.load_model(uri)
         print("loading done.")
+
+        # recreate toydataset corresponding to the model
+        args.model = model.name
+        toydataset = DatesetToy(Dout, W, args.model, device=device)
+        trainset = toydataset.create_trainset()
     else:
         # setup model
         dims = (trainset.ti.shape[-1], trainset.tc.shape[-1], trainset.kn.shape[-1])
@@ -267,11 +291,11 @@ if __name__ == "__main__":
             ws=trainset.ti.shape[1],
             dim_emb=8,
             n_heads=4,
-            k=5,
             n_layers=1,
+            k=5,
         )
     model.to(device)
-    print("model.args:", model.args)
+    print("model.args:", model.name, model.args)
 
     # setup optimizer
     # optimizer = optim.LBFGS(model.parameters(), lr=0.8)     # Newton
@@ -287,6 +311,9 @@ if __name__ == "__main__":
         )
     )
     trainer = Trainer(model, optimizer, params)
+
+    # graph to tensorboard
+    trainer.write_graph(trainset)
 
     # pretrain
     trainer.do_pretrain(toydataset, epochs=args.max_epoch_pretrain)

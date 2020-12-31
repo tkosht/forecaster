@@ -13,6 +13,7 @@ from ..loss import loss_quantile, loss_mse
 
 class ModelBase(nn.Module):
     quantiles = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+    name = "base"
 
     def __init__(
         self,
@@ -21,8 +22,8 @@ class ModelBase(nn.Module):
         ws: int,  # windows size of time series/sequence
         dim_emb: int,  # dim for embedding
         n_heads: int,  # the number of attention heads in transformer
-        k: int,  # the numbers of curves
         n_layers: int,  # layers of multi-heads
+        k: int,  # the numbers of curves
     ):
         super().__init__()
         self.set_params()
@@ -54,6 +55,9 @@ class ModelBase(nn.Module):
 
         # linears
         self.dc = nn.Linear(ws * dim_emb, ws * n_dim * self.n_quantiles)  # .double()
+
+        # constraint
+        self.loss_constraint_pretrain = 0
 
         # to double
         self.emb_encode = self.emb_encode.double()
@@ -139,23 +143,27 @@ class ModelBase(nn.Module):
     def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
         raise NotImplementedError(type(self))
 
-    def loss_pretrain(self, ti: Tsr, tc: Tsr, kn: Tsr) -> Tsr:
+    def loss_pretrain(self, ti: Tsr, tc: Tsr, kn: Tsr, **params) -> Tsr:
         x = self.make_x(ti, tc, kn)
         y = x.unsqueeze(-1)
         p = self.pretrain(ti, tc, kn)  # (B, W, D, k)
-        loss = self.calc_loss_pretrain(p, y)
+        loss = self.calc_loss_pretrain(p, y, **params)
         return loss
 
-    def calc_loss_pretrain(self, pred_y: Tsr, tg: Tsr) -> Tsr:
+    def calc_loss_pretrain(self, pred_y: Tsr, tg: Tsr, **params) -> Tsr:
         loss = loss_quantile(pred_y, tg)
+        loss += self.calc_loss_pretrain_constraint(**params)
         return loss
 
-    def loss_train(self, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr) -> Tsr:
+    def calc_loss_pretrain_constraint(self, **params) -> Tsr:
+        return 0.0
+
+    def loss_train(self, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr, **params) -> Tsr:
         p = self(ti, tc, kn)  # (B, W, D, k)
-        loss = self.calc_loss(p, tg)
+        loss = self.calc_loss(p, tg, **params)
         return loss
 
-    def calc_loss(self, pred_y: Tsr, tg: Tsr) -> Tsr:
+    def calc_loss(self, pred_y: Tsr, tg: Tsr, **params) -> Tsr:
         raise NotImplementedError(type(self))
 
 
@@ -229,6 +237,8 @@ class PositionalEncoding(nn.Module):
 
 
 class Cyclic(ModelBase):
+    name = "cyclic"
+
     def __init__(
         self,
         dim_ins: tuple,
@@ -236,8 +246,8 @@ class Cyclic(ModelBase):
         ws: int,
         dim_emb=4 * 2,  # dim for embedding
         n_heads=4,
-        k=5,  # the numbers of sin/cos curves
         n_layers=1,  # layers of multi-heads
+        k=5,  # the numbers of sin/cos curves
     ):
         super().__init__(
             dim_ins,
@@ -245,8 +255,8 @@ class Cyclic(ModelBase):
             ws,
             dim_emb,
             n_heads,
-            k,
             n_layers,
+            k,
         )  # after this call, to be enabled to access `self.args`
 
         # linears
@@ -254,6 +264,9 @@ class Cyclic(ModelBase):
         self.bk = nn.Linear(ws * dim_emb, k * self.n_quantiles).double()
         self.wk = nn.Linear(ws * dim_emb, k).double()
         self.ok = nn.Linear(ws * dim_emb, k).double()
+
+        # constraint
+        self.loss_constraint = 0  # just reserved
 
         # initialize weights
         nn.init.kaiming_normal_(self.ak.weight)
@@ -270,10 +283,10 @@ class Cyclic(ModelBase):
         x = torch.cat([_ti, tc, kn], dim=-1)  # as input
         return x
 
-    def pretrain(self, ti: Tsr, tc: Tsr, kn: Tsr) -> Tsr:
+    def pretrain(self, ti: Tsr, tc: Tsr, kn: Tsr, **params) -> Tsr:
         return self._pretrain(ti, tc, kn)
 
-    def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
+    def _forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
         # embedding
         # - for X
         x = self.make_x(ti, tc, kn)  # as input
@@ -291,9 +304,16 @@ class Cyclic(ModelBase):
         a = self.ak(z)
         b = self.bk(z)
 
-        pi = numpy.pi
         w = self.wk(z)
-        o = 2 * pi * torch.sigmoid(self.ok(z))
+        o = self.ok(z)
+
+        pi = numpy.pi
+        o = 2 * pi * torch.sigmoid(o)
+
+        return x, a, b, w, o
+
+    def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
+        x, a, b, w, o = self._forward(ti, tc, kn)
 
         # adjusting the shape
         k, q = self.args.k, self.n_quantiles
@@ -313,13 +333,32 @@ class Cyclic(ModelBase):
 
         return y
 
-    def calc_loss(self, pred_y: Tsr, tg: Tsr) -> Tsr:
+    def calc_loss(self, pred_y: Tsr, tg: Tsr, **params) -> Tsr:
         y = tg[:, -1, :]
         loss = loss_quantile(pred_y, y)
+        loss += self.calc_loss_train_constraint(**params)
         return loss
+
+    def calc_loss_train_constraint(self, **params) -> Tsr:
+        if "batch" not in params:  # possibly in prediction context
+            return 0.0
+
+        bti_org, __bti, btc, bkn, __btg = params["batch"]
+        __x, a, b, w, o = self._forward(bti_org, btc, bkn)
+        # l2 = nn.MSELoss()
+        l1 = nn.SmoothL1Loss()
+        loss_constraint = (
+            l1(a[:-1], a[1:])
+            + l1(b[:-1], b[1:])
+            + l1(w[:-1], w[1:])
+            + l1(o[:-1], o[1:])
+        )
+        return loss_constraint
 
 
 class Trend(ModelBase):
+    name = "trend"
+
     def __init__(
         self,
         dim_ins: tuple,
@@ -327,8 +366,8 @@ class Trend(ModelBase):
         ws: int,
         dim_emb=3,
         n_heads=3,
-        k=3,
         n_layers=1,
+        k=5,  # the numbers of relu curves
     ):
         super().__init__(
             dim_ins,
@@ -336,8 +375,8 @@ class Trend(ModelBase):
             ws,
             dim_emb,
             n_heads,
-            k,
             n_layers,
+            k,
         )  # after this call, to be enabled to access `self.args`
 
         # linears
@@ -347,6 +386,9 @@ class Trend(ModelBase):
 
         # activation
         self.relu = nn.ReLU()
+
+        # constraint
+        self.loss_constraint = 0
 
         # initialize weights
         nn.init.xavier_normal_(self.ak.weight)
@@ -358,7 +400,7 @@ class Trend(ModelBase):
     def pretrain(self, ti: Tsr, tc: Tsr, kn: Tsr) -> Tsr:
         return self._pretrain(ti, tc, kn)
 
-    def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
+    def _forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
         # embedding
         # - for X
         x = self.make_x(ti, tc, kn)  # as input
@@ -376,6 +418,11 @@ class Trend(ModelBase):
         b = self.bk(h)
         o = torch.sigmoid(self.ok(h))  # almost ti in (0, 1), by 2200-1-1
 
+        return x, a, b, o
+
+    def forward(self, ti: Tsr, tc: Tsr, kn: Tsr):
+        x, a, b, o = self._forward(ti, tc, kn)
+
         # adjusting the shape
         k, q = self.args.k, self.n_quantiles
         kq = k * q
@@ -391,7 +438,26 @@ class Trend(ModelBase):
         y = y.sum(dim=1)  # ¥sum_k y_{b, k, q}
         return y
 
-    def calc_loss(self, pred_y: Tsr, tg: Tsr) -> Tsr:
+    def calc_loss(self, pred_y: Tsr, tg: Tsr, **params) -> Tsr:
         y = tg[:, -1, :]
-        loss = loss_mse(pred_y, y)
+        loss = loss_quantile(pred_y, y) + loss_mse(pred_y, y)
+        loss += self.calc_loss_train_constraint(**params)
         return loss
+
+    def calc_loss_train_constraint(self, **params) -> Tsr:
+        if "batch" not in params:  # possibly in prediction context
+            return 0.0
+
+        bti_org, __bti, btc, bkn, __btg = params["batch"]
+        __x, a, b, o = self._forward(bti_org, btc, bkn)
+        # l2 = nn.MSELoss()
+        # l1 = nn.L1Loss()
+        l1 = nn.SmoothL1Loss()
+        n_smooth_steps = 3
+        loss_constraint = 0.0
+        for idx in range(1, n_smooth_steps + 1):
+            loss_constraint += (
+                l1(a[:-idx], a[idx:]) + l1(b[:-1], b[1:]) + l1(o[:-1], o[1:])
+            )
+        # loss_constraint = l2(a[:-1], a[1:]) + l2(b[:-1], b[1:]) + l2(o[:-1], o[1:])
+        return loss_constraint
