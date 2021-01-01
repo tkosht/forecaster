@@ -19,7 +19,5 @@ def loss_quantile(
 
 
 def loss_mse(pred_y: Tsr, tg: Tsr) -> Tsr:
-    # loss = nn.MSELoss()(pred_y.mean(axis=-1).unsqueeze(-1), tg)
-    idx = pred_y.shape[-1] // 2
-    loss = nn.MSELoss()(pred_y[..., idx].unsqueeze(-1), tg)
+    loss = nn.MSELoss()(pred_y, tg)
     return loss

@@ -439,8 +439,11 @@ class Trend(ModelBase):
         return y
 
     def calc_loss(self, pred_y: Tsr, tg: Tsr, **params) -> Tsr:
+        idx = pred_y.shape[-1] // 2
+        p = pred_y[..., idx].unsqueeze(-1)
         y = tg[:, -1, :]
-        loss = loss_quantile(pred_y, y) + loss_mse(pred_y, y)
+        assert p.shape == y.shape
+        loss = loss_quantile(pred_y, y) + loss_mse(p, y)
         loss += self.calc_loss_train_constraint(**params)
         return loss
 
@@ -459,5 +462,4 @@ class Trend(ModelBase):
             loss_constraint += (
                 l1(a[:-idx], a[idx:]) + l1(b[:-1], b[1:]) + l1(o[:-1], o[1:])
             )
-        # loss_constraint = l2(a[:-1], a[1:]) + l2(b[:-1], b[1:]) + l2(o[:-1], o[1:])
         return loss_constraint
