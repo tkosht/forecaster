@@ -7,9 +7,6 @@ from ..util.items import Items
 from ..dataset.dateset import Tsr
 from ..loss import loss_quantile, loss_mse
 
-# Tsr = torch.DoubleTensor
-# Tsr = torch.Tensor
-
 
 class ModelBase(nn.Module):
     quantiles = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
