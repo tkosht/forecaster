@@ -8,6 +8,37 @@ from ..dataset.dateset import Tsr
 from ..loss import loss_quantile, loss_mse
 
 
+class PositionalEncoding(nn.Module):
+    """
+    c.f. https://pytorch.org/tutorials/beginner/transformer_tutorial.html
+    """
+
+    def __init__(self, d_model, dropout=0.0, max_len=512):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-numpy.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)  # (W, D) -> (1, W, D) -> (W, 1, D)
+        self.register_buffer("pe", pe)
+
+    def forward(self, x: Tsr) -> Tsr:
+        """
+        Shapes:
+            x: (W, B, D)
+            B: batch size
+            W: window size
+            D: dim
+        """
+        x = x + self.pe[: x.size(0), :]
+        return self.dropout(x)  # (W, B, D)
+
+
 class ModelBase(nn.Module):
     quantiles = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
     name = "base"
@@ -169,12 +200,19 @@ class ModelTimesries(ModelBase):
     TODO: to implement
     """
 
-    def __init__(self, dim_ins=16, n_heads=4, ws=8, n_quantiles=7):
+    def __init__(
+        self,
+        dim_ins: tuple,
+        dim_out: int,
+        ws: int,
+        dim_emb=4 * 2,  # dim for embedding
+        n_heads=4,
+        n_layers=1,  # layers of multi-heads
+        k=5,  # the numbers of sin/cos curves
+    ):
         super().__init__()  # after this call, to be enabled to access `self.args`
-        self.cyclic = Cyclic(
-            dim_ins=dim_ins, n_heads=4, n_quantiles=self.args.n_quantiles
-        )
-        self.trend = None
+        self.cyclic = Cyclic(**self.args)
+        self.trend = Trend(**self.args)
         self.recent = None
         self.ws = ws  # window size
 
@@ -200,37 +238,6 @@ class ModelTimesries(ModelBase):
         recent = self.recent(ti, kn, tc[:, -ws:, :], un[:, -ws:, :], tg)
         y = cyclic + trend + recent
         return y
-
-
-class PositionalEncoding(nn.Module):
-    """
-    c.f. https://pytorch.org/tutorials/beginner/transformer_tutorial.html
-    """
-
-    def __init__(self, d_model, dropout=0.0, max_len=512):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, d_model, 2).float() * (-numpy.log(10000.0) / d_model)
-        )
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)  # (W, D) -> (1, W, D) -> (W, 1, D)
-        self.register_buffer("pe", pe)
-
-    def forward(self, x: Tsr) -> Tsr:
-        """
-        Shapes:
-            x: (W, B, D)
-            B: batch size
-            W: window size
-            D: dim
-        """
-        x = x + self.pe[: x.size(0), :]
-        return self.dropout(x)  # (W, B, D)
 
 
 class Cyclic(ModelBase):
