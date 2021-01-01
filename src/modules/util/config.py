@@ -12,7 +12,7 @@ class Config(object):
         self._load()
 
     def _load(self):
-        with open(self.config_file, 'r') as f:
+        with open(self.config_file, "r") as f:
             _config = yaml.safe_load(f)
             assert isinstance(_config, dict)
         self.items.setup(_config)

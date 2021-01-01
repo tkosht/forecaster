@@ -11,15 +11,16 @@ ssh:
 train predict: up
 	docker-compose exec app python -m src.$@
 
-test.toy: test.toy.cyclic
+toy: 
+	docker-compose exec app mlflow run -e main --no-conda .
 
-test.toy.cyclic: up
+toy.cyclic: up
 	docker-compose exec app mlflow run -e cyclic --no-conda .
 
-test.toy.trend: up
+toy.trend: up
 	docker-compose exec app mlflow run -e trend --no-conda .
 
-test.toy.resume: up
+toy.resume: up
 	docker-compose exec app mlflow run -e resume --no-conda .
 
 # switch mode

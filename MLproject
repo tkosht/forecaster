@@ -4,48 +4,56 @@ entry_points:
   main:
     parameters:
       model: {type: str, default: "cyclic"}
-      max-epoch: {type: int, default: 10000}
+      max-epoch-pretrain: {type: int, default: 500}
+      max-epoch: {type: int, default: 300}
       log-interval: {type: int, default: 100}
-      save-interval: {type: int, default: 2000}
+      save-interval: {type: int, default: 200}
     command: |
-          python -m src.modules.model.model \
+          python -m src.modules.trainer \
             --model={model} \
+            --max-epoch-pretrain={max-epoch-pretrain} \
             --max-epoch={max-epoch} \
             --log-interval={log-interval} \
             --save-interval={save-interval}
   cyclic:
     parameters:
       model: {type: str, default: "cyclic"}
-      max-epoch: {type: int, default: 10000}
+      max-epoch-pretrain: {type: int, default: 2000}
+      max-epoch: {type: int, default: 1000}
       log-interval: {type: int, default: 100}
       save-interval: {type: int, default: 2000}
     command: |
-          python -m src.modules.model.model \
+          python -m src.modules.trainer \
             --model={model} \
+            --max-epoch-pretrain={max-epoch-pretrain} \
             --max-epoch={max-epoch} \
             --log-interval={log-interval} \
             --save-interval={save-interval}
   trend:
     parameters:
       model: {type: str, default: "trend"}
-      max-epoch: {type: int, default: 10000}
+      max-epoch-pretrain: {type: int, default: 2000}
+      max-epoch: {type: int, default: 1000}
       log-interval: {type: int, default: 100}
       save-interval: {type: int, default: 2000}
     command: |
-          python -m src.modules.model.model \
+          python -m src.modules.trainer \
             --model={model} \
+            --max-epoch-pretrain={max-epoch-pretrain} \
             --max-epoch={max-epoch} \
             --log-interval={log-interval} \
             --save-interval={save-interval}
 
   resume:
     parameters:
-      max-epoch: {type: int, default: 10000}
+      max-epoch-pretrain: {type: int, default: 3000}
+      max-epoch: {type: int, default: 5000}
       log-interval: {type: int, default: 100}
       save-interval: {type: int, default: 2000}
     command: |
-          python -m src.modules.model.model \
+          python -m src.modules.trainer \
             --resume \
+            --max-epoch-pretrain={max-epoch-pretrain} \
             --max-epoch={max-epoch} \
             --log-interval={log-interval} \
             --save-interval={save-interval}

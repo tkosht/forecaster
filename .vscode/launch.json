@@ -19,19 +19,38 @@
             "justMyCode": false
         },
         {
-            "name": "model.py: cyclic",
+            "name": "toy: cyclic",
             "type": "python",
             "request": "launch",
-            "module": "src.modules.model.model",
+            "module": "src.modules.trainer",
+            "args": [
+                "--model=cyclic",
+                "--max-epoch-pretrain=200",
+                "--max-epoch=200",
+            ],
             "justMyCode": false
         },
         {
-            "name": "model.py: trend",
+            "name": "toy: trend",
             "type": "python",
             "request": "launch",
-            "module": "src.modules.model.model",
+            "module": "src.modules.trainer",
             "args": [
-                "--model=trend"
+                "--model=trend",
+                "--max-epoch-pretrain=0",
+                "--max-epoch=200",
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "toy: resume",
+            "type": "python",
+            "request": "launch",
+            "module": "src.modules.trainer",
+            "args": [
+                "--resume",
+                "--max-epoch-pretrain=200",
+                "--max-epoch=200",
             ],
             "justMyCode": false
         },
