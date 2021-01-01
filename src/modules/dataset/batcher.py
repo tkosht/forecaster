@@ -1,11 +1,24 @@
 import numpy
+import pandas
+import torch
+from typing import Union
+
+
+BatchType = Union[
+    numpy.ndarray,
+    pandas.DataFrame,
+    pandas.Series,
+    torch.FloatTensor,
+    torch.DoubleTensor,
+    torch.LongTensor,
+]
 
 
 class BatchMaker(object):
     def __init__(self, bsz=64) -> None:
         self.bsz = bsz
 
-    def __call__(self, data) -> numpy.ndarray:
+    def __call__(self, data: BatchType) -> BatchType:
         n = len(data)
         for idx in range(0, n, self.bsz):
             bch = data[idx : idx + self.bsz]
@@ -24,3 +37,10 @@ if __name__ == "__main__":
             by[0, 0],
             bz[0, 0],
         )
+
+    # test for tensor
+    ti = tv = tc = kn = torch.arange(0, 60).view(4, 3, -1)
+    print("tv.shape:", tv.shape)
+    batch = BatchMaker(bsz=2)
+    for bch in zip(batch(ti), batch(tv)):
+        print(bch)

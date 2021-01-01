@@ -11,6 +11,16 @@ ssh:
 train predict: up
 	docker-compose exec app python -m src.$@
 
+# test task
+test:
+	$(eval config := -c conf/setup.cfg)
+	docker-compose exec app python -m pytest $(config)
+
+pytest:
+	$(eval config := -c conf/setup.cfg)
+	python -m pytest $(config)
+
+# experiment tasks
 toy: 
 	docker-compose exec app mlflow run -e main --no-conda .
 

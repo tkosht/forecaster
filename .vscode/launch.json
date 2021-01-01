@@ -5,20 +5,6 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "train.py",
-            "type": "python",
-            "request": "launch",
-            "module": "src.train",
-            "justMyCode": false
-        },
-        {
-            "name": "predict.py",
-            "type": "python",
-            "request": "launch",
-            "module": "src.predict",
-            "justMyCode": false
-        },
-        {
             "name": "toy: cyclic",
             "type": "python",
             "request": "launch",
@@ -60,6 +46,27 @@
             "request": "launch",
             "module": "src.modules.util.config",
             "justMyCode": false
-        }
+        },
+        {
+            "name": "dateset.py",
+            "type": "python",
+            "request": "launch",
+            "module": "src.modules.dataset.dateset",
+            "justMyCode": false
+        },
+        {
+            "name": "train.py",
+            "type": "python",
+            "request": "launch",
+            "module": "src.train",
+            "justMyCode": false
+        },
+        {
+            "name": "predict.py",
+            "type": "python",
+            "request": "launch",
+            "module": "src.predict",
+            "justMyCode": false
+        },
     ]
 }

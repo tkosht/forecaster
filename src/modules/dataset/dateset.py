@@ -1,9 +1,11 @@
 from __future__ import annotations
+from typing import Tuple
 import numpy
 import pandas
 import torch
-from typing import Tuple
 from dataclasses import dataclass
+
+from .batcher import BatchMaker, BatchType
 from .dateseries import DatasetDateSeries
 
 
@@ -45,11 +47,11 @@ def make_curve_trend(ti: Tsr) -> Tsr:
 
 @dataclass
 class DateTensors(object):
-    ti: Tsr = Tsr([])  # time index
+    ti: Tsr = Tsr([])  # time index, never none
     tv: Tsr = None  # time variables
-    tc: Tsr = Tsr([])  # time constant
-    kn: Tsr = Tsr([])
-    tg: Tsr = Tsr([])
+    tc: Tsr = None  # time constant
+    kn: Tsr = None  # known data even in future (like weekdays, ...)
+    tg: Tsr = None  # target
     device: torch.device = torch.device("cpu")
 
     def to(self) -> DateTensors:
@@ -57,6 +59,38 @@ class DateTensors(object):
         for tsr in tensors:
             if tsr is not None:
                 tsr.to(self.device)
+
+    def __call__(self, bsz) -> BatchType:
+        batch = BatchMaker(bsz)
+        empty = [Tsr([])] * len(self.ti)
+        ti = self.ti
+        tv = self.tv if self.tv is not None else empty
+        tc = self.tc if self.tc is not None else empty
+        kn = self.kn if self.kn is not None else empty
+        tg = self.tg if self.tg is not None else empty
+
+        for bch in zip(batch(ti), batch(tv), batch(tc), batch(kn), batch(tg)):
+            yield DateTensors(*bch, self.device)
+
+    def __len__(self):
+        return len(self.ti)
+
+    def __eq__(self, other: DateTensors):
+        is_equal = True
+
+        def eq(tsr1: BatchType, tsr2: BatchType):
+            if (tsr1 is not None) and (tsr2 is not None):
+                return (tsr1 == tsr2).all()
+            if (tsr1 is None) and (tsr2 is None):
+                return True
+            return False
+
+        is_equal = is_equal and eq(self.ti, other.ti)
+        is_equal = is_equal and eq(self.tv, other.tv)
+        is_equal = is_equal and eq(self.tc, other.tc)
+        is_equal = is_equal and eq(self.kn, other.kn)
+        is_equal = is_equal and eq(self.tg, other.tg)
+        return is_equal
 
 
 class DatesetToy(object):
@@ -153,3 +187,16 @@ if __name__ == "__main__":
     # create toy dataset
     W, Dout = 14, 1
     toydataset = DatesetToy(Dout, W, "cycle", device=torch.device("cuda:0"))
+
+    # test DateTensors
+    ti = tv = tc = kn = tg = torch.arange(0, 60).view(4, 3, -1)
+    batch = BatchMaker(bsz=2)
+    for idx, bch in enumerate(zip(batch(ti), batch(tv), batch(tc), batch(kn))):
+        print(f"{idx:02d}", type(bch), "n_zip:", len(bch), "bsz:", len(bch[0]))
+
+    tsr = DateTensors(ti, tv, tc, kn, tg)
+    for idx, bch in enumerate(tsr(bsz=2)):
+        print(f"{idx:02d}", type(bch), "bsz:", len(bch))
+
+    for idx, bch in enumerate(tsr(bsz=4)):
+        print(f"{idx:02d}", type(bch), "bsz:", len(bch))

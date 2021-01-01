@@ -83,14 +83,9 @@ class DatasetDateSeries(object):
 
         self._make_datedata()._make_window()
 
-    def _make_datedata(
-        self,
-        start: str = "2016-01-01",
-        end: str = "2018-12-31",
-        freq: str = "D",
-    ) -> DatasetDateSeries:
+    def _make_datedata(self) -> DatasetDateSeries:
         df = pandas.DataFrame([])
-        index_date = pandas.date_range(start, end, freq=freq)
+        index_date = pandas.date_range(self.start, self.end, freq=self.freq)
         df["month"] = index_date.month
         df["weekth"] = index_date.isocalendar().week.values.astype(numpy.int32)
         df["weekday"] = index_date.weekday
