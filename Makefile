@@ -86,3 +86,6 @@ clean:
 
 clean-result:
 	rm -rf result/* mlruns
+
+clean-test:
+	rm -rf result/tests
