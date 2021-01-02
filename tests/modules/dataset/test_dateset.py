@@ -42,6 +42,17 @@ class TestDateTensors(object):
         for idx, bch in enumerate(date_tensors(bsz=batch_size)):
             assert len(bch) == batch_size
 
+    def test_tensors_zip(self, date_tensors):
+        batch_size = 4
+        ti = tv = tc = kn = tg = fake.clone()
+        date_tensors_1 = DateTensors(ti, tv, tc, kn, tg)
+        for idx, bch in enumerate(
+            zip(date_tensors(bsz=batch_size), date_tensors_1(bsz=batch_size))
+        ):
+            assert len(bch) == 2
+            assert len(bch[0]) == batch_size
+            assert len(bch[1]) == batch_size
+
     def test_tensors_eq(self, date_tensors):
         ti = tv = tc = kn = tg = base.clone()
         date_tensors_1 = DateTensors(ti, tv, tc, kn, tg)
@@ -146,6 +157,17 @@ class TestDateTensors(object):
         date_numpys_1 = DateTensors(ti, tv, tc, kn, None)
         date_numpys_2 = DateTensors(ti, tv, tc, kn, tg)
         assert date_numpys_1 != date_numpys_2
+
+    def test_numpys_zip(self, date_numpys):
+        batch_size = 4
+        ti = tv = tc = kn = tg = fake2.copy()
+        date_numpys_1 = DateTensors(ti, tv, tc, kn, tg)
+        for idx, bch in enumerate(
+            zip(date_numpys(bsz=batch_size), date_numpys_1(bsz=batch_size))
+        ):
+            assert len(bch) == 2
+            assert len(bch[0]) == batch_size
+            assert len(bch[1]) == batch_size
 
 
 class TestDatesetToy(object):
