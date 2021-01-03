@@ -10,7 +10,7 @@ from typing import Tuple
 
 from .util.items import Items
 from .dataset.batcher import BatchMaker
-from .dataset.dateset import Tsr
+from .dataset.dateset import Tsr, DateTensors
 
 
 class Trainer(object):
@@ -31,7 +31,9 @@ class Trainer(object):
         self.experiment_id = experiment_id
 
     def write_graph(self, trainset):
-        self.writer.add_graph(self.model, (trainset.ti, trainset.tc, trainset.kn))
+        d = next(trainset(self.params.batch_size))
+        data_in = d.safe_tuple()[:-1]
+        self.writer.add_graph(self.model, data_in)
 
     def get_quantile(self, x: Tsr, alpha: float):
         idx = (numpy.array(self.params.quantiles) == alpha).argmax()
@@ -55,42 +57,42 @@ class Trainer(object):
         train_mode = self._get_train_mode()
         print(f"##### {train_mode} #####")
 
-        ti, tc, kn, tg = (
-            dataset.trainset.ti,
-            dataset.trainset.tc,
-            dataset.trainset.kn,
-            dataset.trainset.tg,
-        )
-        batch = BatchMaker(bsz=self.params.batch_size)
+        # ti, tc, kn, tg = (
+        #     dataset.trainset.ti,
+        #     dataset.trainset.tc,
+        #     dataset.trainset.kn,
+        #     dataset.trainset.tg,
+        # )
+        # batch = BatchMaker(bsz=self.params.batch_size)
 
         # train loop
         n_steps = -1
         losses = []
         # # epoch loop
         for idx in range(epochs):
-            shuffle = numpy.random.permutation(range(len(ti)))
-            _ti, _tc, _kn, _tg = ti[shuffle], tc[shuffle], kn[shuffle], tg[shuffle]
+            # shuffle = numpy.random.permutation(range(len(ti)))
+            # _ti, _tc, _kn, _tg = ti[shuffle], tc[shuffle], kn[shuffle], tg[shuffle]
+            shuffled = dataset.trainset.create_shuffle()
 
+            bsz = self.params.batch_size
             # # batch loop
-            for bdx, bch in enumerate(
-                zip(
-                    batch(ti),
-                    batch(_ti),
-                    batch(_tc),
-                    batch(_kn),
-                    batch(_tg),
-                )
+            for bdx, (borig, bshuf) in enumerate(
+                zip(dataset.trainset(bsz), shuffled(bsz))
             ):
-                (bti_org, bti, btc, bkn, btg) = bch
+                (bti, btv, btc, bkn, btg) = bshuf.safe_tuple()
                 n_steps += 1
 
                 def closure():
-                    model_params = dict(batch=bch)
+                    model_params = dict(batch_ordered=borig)
                     self.optimizer.zero_grad()
                     if train_mode == "pretrain":
-                        loss = self.model.loss_pretrain(bti, btc, bkn, **model_params)
+                        loss = self.model.loss_pretrain(
+                            bti, btv, btc, bkn, **model_params
+                        )
                     else:
-                        loss = self.model.loss_train(bti, btc, bkn, btg, **model_params)
+                        loss = self.model.loss_train(
+                            bti, btv, btc, bkn, btg, **model_params
+                        )
                     losses.append(loss.item())
                     assert len(losses) == n_steps + 1
 
@@ -110,20 +112,16 @@ class Trainer(object):
                         )
 
                         # prediction with trainset
+                        d = toydataset.trainset
                         loss_train = self._predict(
-                            idx, ti, tc, kn, tg, pred_mode="train"
+                            idx, d.ti, d.tc, d.kn, d.tg, pred_mode="train"
                         )
                         self.loss_train = loss_train.item()
 
                         # prediction with testset
-                        testset = dataset.create_testset()
+                        d = dataset.create_testset()
                         loss_valid = self._predict(
-                            idx,
-                            testset.ti,
-                            testset.tc,
-                            testset.kn,
-                            testset.tg,
-                            pred_mode="valid",
+                            idx, d.ti, d.tc, d.kn, d.tg, pred_mode="valid"
                         )
                         self.loss_valid = loss_valid.item()
 
@@ -148,7 +146,8 @@ class Trainer(object):
             next(batch(tg)),
         )
         with torch.no_grad():
-            pred = self.model(bti, btc, bkn)
+            btv = Tsr([]).to(bti.device)  # TODO: refactored
+            pred = self.model(bti, btv, btc, bkn)
             loss = self.model.calc_loss(pred, btg)
         preds = self._make_predictions(pred, btg)
         self._write_log2tb(idx, preds, loss, pred_mode)

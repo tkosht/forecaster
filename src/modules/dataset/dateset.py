@@ -59,6 +59,30 @@ class DateTensors(object):
         for tsr in tensors:
             if tsr is not None:
                 tsr.to(self.device)
+        return self
+
+    def create_shuffle(self) -> DateTensors:
+        shuf = numpy.random.permutation(range(len(self)))
+        ti, tv, tc, kn, tg = (
+            self.ti[shuf],
+            self.tv[shuf] if self.tv is not None else None,
+            self.tc[shuf] if self.tc is not None else None,
+            self.kn[shuf] if self.kn is not None else None,
+            self.tg[shuf] if self.tg is not None else None,
+        )
+        return DateTensors(ti, tv, tc, kn, tg)
+
+    def safe_tuple(self) -> Tuple[BatchType]:
+        def _is_emp(t: Tsr):
+            return (t is None) or (len(t[0]) == 0)
+
+        empty = Tsr([]).to(self.ti.device)
+        ti = self.ti
+        tv = self.tv if not _is_emp(self.tv) else empty
+        tc = self.tc if not _is_emp(self.tc) else empty
+        kn = self.kn if not _is_emp(self.kn) else empty
+        tg = self.tg if not _is_emp(self.tg) else empty
+        return ti, tv, tc, kn, tg
 
     def __call__(self, bsz) -> BatchType:
         batch = BatchMaker(bsz)
@@ -130,8 +154,10 @@ class DatesetToy(object):
         ti = Tsr(self.date_series.ti_win)
 
         # tc window data to tensor
-        N, W, Dtc = len(ti), self.date_series.wsz, 3
-        tc = torch.randint(0, 2, (1, 1, Dtc)).repeat(N, W, 1)  # shape: (N, W, Dtc)
+        # # N, W, Dtc = len(ti), self.date_series.wsz, 3
+        # # tc = torch.randint(0, 2, (1, 1, Dtc)).repeat(N, W, 1)  # shape: (N, W, Dtc)
+        N, W = len(ti), self.date_series.wsz
+        tc = Tsr([[[0, 0, 1]]]).repeat(N, W, 1)  # shape: (N, W, Dtc)
 
         # kn window data to tensor
         kn = Tsr(self.date_series.kn_win)
