@@ -9,9 +9,12 @@ matplotlib
 seaborn
 plotly
 pandasgui
+skopt
+optuna
 
 # for experiment management
 mlflow
+tensorflow
 tensorboard
 tensorboardX
 
@@ -45,4 +48,5 @@ fsspec>=0.8.0	# for pytorch-lightning
 pytorch-forecasting
 fastparquet
 python-snappy
+hydra
 pyro-ppl
