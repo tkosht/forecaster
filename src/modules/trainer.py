@@ -30,7 +30,17 @@ class Trainer(object):
         self.writer = writer
         self.experiment_id = experiment_id
 
-    def write_graph(self, trainset):
+    def initialize(self, trainset):
+        self._write_graph(trainset)
+        self._log_experiment_params()
+
+    def _log_experiment_params(self):
+        import json
+
+        mlflow.log_text(json.dumps(self.params), "params_trainer.json")
+        mlflow.log_text(json.dumps(self.model.args), "params_model.json")
+
+    def _write_graph(self, trainset):
         d = next(trainset(self.params.batch_size))
         data_in = d.safe_tuple()[:-1]
         self.writer.add_graph(self.model, data_in)
@@ -104,14 +114,14 @@ class Trainer(object):
                         # prediction with trainset
                         d = toydataset.trainset
                         loss_train = self._predict(
-                            idx, d.ti, d.tc, d.kn, d.tg, pred_mode="train"
+                            idx, d.ti, d.tv, d.tc, d.kn, d.tg, pred_mode="train"
                         )
                         self.loss_train = loss_train.item()
 
                         # prediction with testset
                         d = dataset.create_testset()
                         loss_valid = self._predict(
-                            idx, d.ti, d.tc, d.kn, d.tg, pred_mode="valid"
+                            idx, d.ti, d.tv, d.tc, d.kn, d.tg, pred_mode="valid"
                         )
                         self.loss_valid = loss_valid.item()
 
@@ -126,7 +136,7 @@ class Trainer(object):
                 )
 
     def _predict(
-        self, idx, ti: Tsr, tc: Tsr, kn: Tsr, tg: Tsr, pred_mode="train"
+        self, idx, ti: Tsr, tv: Tsr, tc: Tsr, kn: Tsr, tg: Tsr, pred_mode="train"
     ) -> Tsr:
         batch = BatchMaker(bsz=self.params.batch_size)
         bti, btc, bkn, btg = (
@@ -167,8 +177,25 @@ class Trainer(object):
         )
         mlflow.log_metric(pred_type, loss.item())
 
+        def _save_plots(preds):
+            y, yL, yH, t = preds
+            dct_pred_arrays = {
+                k: v.cpu().numpy().astype(numpy.float64)
+                for k, v in zip(["y", "yL", "yH", "t"], preds)
+            }
+            from matplotlib import pyplot
+            import pandas
+
+            pandas.DataFrame(dct_pred_arrays).plot()
+            img_file = f"result/prediction_{pred_type}.png"
+            pyplot.savefig(img_file)
+            mlflow.log_artifact(img_file)
+
+        _save_plots(preds)
+
     def finalize(self, args):
         self._log_experiments(args)
+        self.writer.close()
 
     def _log_experiments(self, args):
         # experiment log
@@ -185,7 +212,6 @@ class Trainer(object):
                 "hparam/loss/valid": self.loss_valid,
             },
         )
-        self.writer.close()
 
     def _save_model(self, model_title="latest_model"):
         mlflow.pytorch.log_model(
@@ -304,8 +330,8 @@ if __name__ == "__main__":
     )
     trainer = Trainer(model, optimizer, params)
 
-    # graph to tensorboard
-    trainer.write_graph(trainset)
+    # initialize
+    trainer.initialize(trainset)
 
     # pretrain
     trainer.do_pretrain(toydataset, epochs=args.max_epoch_pretrain)
