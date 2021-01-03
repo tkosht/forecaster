@@ -57,21 +57,11 @@ class Trainer(object):
         train_mode = self._get_train_mode()
         print(f"##### {train_mode} #####")
 
-        # ti, tc, kn, tg = (
-        #     dataset.trainset.ti,
-        #     dataset.trainset.tc,
-        #     dataset.trainset.kn,
-        #     dataset.trainset.tg,
-        # )
-        # batch = BatchMaker(bsz=self.params.batch_size)
-
         # train loop
         n_steps = -1
         losses = []
         # # epoch loop
         for idx in range(epochs):
-            # shuffle = numpy.random.permutation(range(len(ti)))
-            # _ti, _tc, _kn, _tg = ti[shuffle], tc[shuffle], kn[shuffle], tg[shuffle]
             shuffled = dataset.trainset.create_shuffle()
 
             bsz = self.params.batch_size
