@@ -10,7 +10,7 @@ from typing import Tuple
 
 from .util.items import Items
 from .dataset.batcher import BatchMaker
-from .dataset.dateset import Tsr, DateTensors
+from .dataset.dateset import Tsr
 
 
 class Trainer(object):
@@ -150,7 +150,7 @@ class Trainer(object):
             pred = self.model(bti, btv, btc, bkn)
             loss = self.model.calc_loss(pred, btg)
         preds = self._make_predictions(pred, btg)
-        self._write_log2tb(idx, preds, loss, pred_mode)
+        self._write_log_progress(idx, preds, loss, pred_mode)
         return loss
 
     def _make_predictions(self, y_pred, tg) -> Tuple[Tsr, Tsr, Tsr, Tsr]:
@@ -161,8 +161,9 @@ class Trainer(object):
         t = tg[:, -1, :][..., 0]
         return p, p10, p90, t
 
-    def _write_log2tb(self, idx, preds, loss, pred_type="train") -> None:
+    def _write_log_progress(self, idx, preds, loss, pred_type="train") -> None:
         train_mode = self._get_train_mode()
+        # log predictions
         for n, (y0, yL, yH, t0) in enumerate(zip(*preds)):
             dct_pred = dict(p=y0, p10=yL, p90=yH, t=t0)
             self.writer.add_scalars(
@@ -170,9 +171,11 @@ class Trainer(object):
                 dct_pred,
                 n,
             )
+        # log loss
         self.writer.add_scalar(
             f"{train_mode}/loss/interval/{pred_type}", loss.item(), idx
         )
+        mlflow.log_metric(pred_type, loss.item())
 
     def finalize(self, args):
         self._log_experiments(args)
