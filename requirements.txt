@@ -9,7 +9,7 @@ matplotlib
 seaborn
 plotly
 pandasgui
-skopt
+scikit-optimize
 optuna
 
 # for experiment management
