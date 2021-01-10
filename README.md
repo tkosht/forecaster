@@ -8,12 +8,20 @@
     make up
     ```
 
-- トイデータでのモデルテスト
+- MLFlow サーバの起動
+
+    ```bash
+    make mlflow-server
+    ```
+
+- トイデータでのモデルテスト (MLFlow サーバと別ターミナルで実行)
     - 実行（学習）
 
         ```bash
-        make toy.test
+        make toy
         ```
+
+        その他、`make toy.cyclic`, `make toy.trend` で実行を試せます
 
     - 実行結果確認
         - 学習中に途中経過も確認可能
@@ -22,8 +30,24 @@
         make tensorboard
         ```
 
+- コンポーネントモジュールのユニットテスト
 
-## 仕様概要(検討中)
+    ```bash
+    make test
+    ```
+
+    - docker 上でテストする場合
+
+    ```bash
+    make pytest
+    ```
+
+    - テスト結果レポート
+
+    `result/tests/` に出力されます
+
+
+## 仕様概要メモ(検討中)
 
 - 長期予測ができる
     - 予測対象固有の動きを学習する
