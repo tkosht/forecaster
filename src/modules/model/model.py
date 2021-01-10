@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 import inspect
 import numpy
 import pandas
@@ -8,15 +7,6 @@ from ..util.items import Items
 from ..util.params import add_args
 from ..dataset.dateset import DateTensors, Tsr
 from ..loss import loss_quantile, loss_mse
-
-
-@dataclass
-class ModelBatchData:
-    ti: Tsr
-    tv: Tsr = Tsr([])
-    tc: Tsr = Tsr([])
-    kn: Tsr = Tsr([])
-    tg: Tsr = Tsr([])
 
 
 class PositionalEncoding(nn.Module):
