@@ -31,12 +31,13 @@
         ```
 
 - コンポーネントモジュールのユニットテスト
+    - docker 上でテスト(実行)する場合
 
     ```bash
     make test
     ```
 
-    - docker 上でテストする場合
+    - docker を起動せず、python から直接テスト(実行)する場合
 
     ```bash
     make pytest
