@@ -1,0 +1,4 @@
+dim_emb: 8  # dim for embedding / times of `n_heads`
+n_heads: 4
+n_layers: 2  # layers of multi-heads
+k: 3  # the numbers of sin/cos curves

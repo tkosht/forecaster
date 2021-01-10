@@ -299,6 +299,8 @@ if __name__ == "__main__":
         args.model = model.name
         toydataset = DatesetToy(Dout, W, args.model, device=device)
         trainset = toydataset.create_trainset()
+        mlflow.log_param("model", model.name)
+        mlflow.log_param("resume", True)
     else:
         # setup model
         dims = (trainset.ti.shape[-1], trainset.tc.shape[-1], trainset.kn.shape[-1])
@@ -307,9 +309,6 @@ if __name__ == "__main__":
             dim_ins=dims,
             dim_out=trainset.tg.shape[-1],
             ws=trainset.ti.shape[1],
-            dim_emb=8,
-            n_heads=4,
-            n_layers=1,
             k=5,
         )
     model.to(device)

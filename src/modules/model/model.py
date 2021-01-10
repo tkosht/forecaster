@@ -5,6 +5,7 @@ import pandas
 import torch
 import torch.nn as nn
 from ..util.items import Items
+from ..util.params import add_args
 from ..dataset.dateset import DateTensors, Tsr
 from ..loss import loss_quantile, loss_mse
 
@@ -306,6 +307,7 @@ class ModelTimesries(ModelBase):
 class Cyclic(ModelBase):
     name = "cyclic"
 
+    @add_args("conf/model.yml")
     def __init__(
         self,
         dim_ins: tuple,
@@ -428,6 +430,7 @@ class Cyclic(ModelBase):
 class Trend(ModelBase):
     name = "trend"
 
+    @add_args("conf/model.yml")
     def __init__(
         self,
         dim_ins: tuple,
