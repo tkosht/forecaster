@@ -2,8 +2,8 @@ import functools
 from omegaconf import OmegaConf
 
 
-def params(params_file: str) -> callable:
-    @functools.wraps(params)
+def add_params(params_file: str) -> callable:
+    @functools.wraps(add_params)
     def _decorator(f: callable) -> callable:
         @functools.wraps(f)
         def _wrapper(*args, **kwargs) -> None:
@@ -16,8 +16,8 @@ def params(params_file: str) -> callable:
     return _decorator
 
 
-def args(params_file: str) -> callable:
-    @functools.wraps(params)
+def add_args(params_file: str) -> callable:
+    @functools.wraps(add_args)
     def _decorator(f: callable) -> callable:
         @functools.wraps(f)
         def _wrapper(*args, **kwargs) -> None:

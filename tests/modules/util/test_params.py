@@ -1,9 +1,9 @@
-from src.modules.util.params import params, args
+from src.modules.util.params import add_params, add_args
 
 
 class TestParams(object):
     def test_decorator(self):
-        @params("tests/modules/util/conf/params.yml")
+        @add_params("tests/modules/util/conf/params.yml")
         def _check_deco(a, b, params):
             assert a == 1.25
             assert b == "hello"
@@ -15,7 +15,7 @@ class TestParams(object):
         _check_deco(a=1.25, b="hello")
 
     def test_args(self):
-        @args("tests/modules/util/conf/params.yml")
+        @add_args("tests/modules/util/conf/params.yml")
         def _check_deco(a, b, n_encoder_layer, n_decoder_layer, n_heads, n_embedding):
             assert a == 0.25
             assert b == "world"
@@ -27,7 +27,7 @@ class TestParams(object):
         _check_deco(a=0.25, b="world")
 
     def test_json(self):
-        @params("tests/modules/util/conf/app.json")
+        @add_params("tests/modules/util/conf/app.json")
         def _check_deco(a, b, params):
             assert a == -0.25
             assert b == "!!!"
