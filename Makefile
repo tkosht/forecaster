@@ -5,6 +5,9 @@ all: run
 bash: up
 	docker-compose exec app bash
 
+python: up
+	docker-compose exec app python
+
 ssh:
 	docker-compose exec app sudo service ssh start
 
@@ -22,16 +25,22 @@ pytest:
 
 # experiment tasks
 toy: 
-	docker-compose exec app mlflow run -e main --no-conda .
+	docker-compose exec app mlflow run --no-conda -e main .
 
 toy.cyclic: up
-	docker-compose exec app mlflow run -e cyclic --no-conda .
+	docker-compose exec app mlflow run --no-conda -e cyclic .
+
+toy.cyclic.long: up
+	docker-compose exec app mlflow run --no-conda -e cyclic . -P max-epoch-pretrain=10000 -P max-epoch=10000
 
 toy.trend: up
-	docker-compose exec app mlflow run -e trend --no-conda .
+	docker-compose exec app mlflow run --no-conda -e trend .
+
+toy.trend.long: up
+	docker-compose exec app mlflow run --no-conda -e trend . -P max-epoch-pretrain=10000 -P max-epoch=10000
 
 toy.resume: up
-	docker-compose exec app mlflow run -e resume --no-conda .
+	docker-compose exec app mlflow run --no-conda -e resume .
 
 # switch mode
 gpu:
@@ -80,7 +89,11 @@ build:
 
 reup: down up
 
-clean:
+clean: clean-container clean-result clean-test
+
+clean-docker: clean-container
+
+clean-container:
 	docker-compose down --rmi all
 	sudo rm -rf app/__pycache__
 

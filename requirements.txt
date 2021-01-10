@@ -48,5 +48,6 @@ fsspec>=0.8.0	# for pytorch-lightning
 pytorch-forecasting
 fastparquet
 python-snappy
-hydra
 pyro-ppl
+hydra-core
+omegaconf
