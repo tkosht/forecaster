@@ -28,6 +28,7 @@
 		"donjayamanne.python-extension-pack",
 		"tushortz.python-extended-snippets",
 		"littlefoxteam.vscode-python",
+		"littlefoxteam.vscode-python-test-adapter",
 		"donjayamanne.githistory",
 		"hediet.vscode-drawio",
 	]

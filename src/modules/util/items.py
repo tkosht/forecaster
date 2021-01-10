@@ -15,6 +15,7 @@ class Item(dict):
             if name in self.__dict__:
                 raise self.ConstError(f"Can't rebind const ({name})")
         self.__dict__[name] = value
+        self.__dict__[name.replace("-", "_")] = value
 
 
 class Items(dict):

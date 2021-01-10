@@ -1,0 +1,4 @@
+n_encoder_layer: 3
+n_decoder_layer: 5
+n_heads: 4
+n_embedding: 16
