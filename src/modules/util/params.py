@@ -26,7 +26,7 @@ def add_args(params_file: str, as_default: bool = False) -> callable:
                 cfg_params.update(kwargs)
                 kwargs = cfg_params
             else:
-                kwargs.update(**cfg_params)
+                kwargs.update(cfg_params)
             return f(*args, **kwargs)
 
         return _wrapper
