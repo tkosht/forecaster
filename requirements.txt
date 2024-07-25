@@ -37,7 +37,7 @@ python-dotenv
 # torch
 # torchvision
 -f https://download.pytorch.org/whl/torch_stable.html
-torch==1.7.0+cu110
+torch==2.2.0
 torchvision==0.8.1+cu110
 torchaudio===0.7.0
 torchtext
